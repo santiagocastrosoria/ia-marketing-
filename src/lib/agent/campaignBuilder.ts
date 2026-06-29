@@ -149,7 +149,11 @@ function buildMetaCampaign(
   dailyBudget: number,
   brand?: BrandKnowledgeContext
 ): Omit<CampaignPlan, "id" | "created_at"> {
-  const maldivas = isMaldivasBrand(objective.industry, objective.product);
+  const maldivas = isMaldivasBrand(
+    objective.industry,
+    objective.product,
+    objective.goal
+  );
 
   const channelPreference =
     objective.meta_channel_preference ??
@@ -180,8 +184,14 @@ function buildMetaCampaign(
   );
   const utm = buildCampaignUTM("meta", slugify(rec.name));
 
-  const maldivasNote = maldivas
-    ? " Canal prioritario: Instagram. Facebook solo como complemento."
+  const instagramNote = maldivas
+    ? " Instagram prioritario: Reels/Stories para calentamiento visual; Feed/Stories para consultas WhatsApp; Facebook solo como apoyo."
+    : channelPreference === "INSTAGRAM_PRIORITY" || channelPreference === "INSTAGRAM_ONLY"
+      ? " Canal Instagram priorizado dentro de Meta Ads."
+      : "";
+
+  const premiumNote = maldivas
+    ? " Mensajes aspiracionales premium — evitar campañas genéricas de muebles."
     : "";
 
   return {
@@ -198,8 +208,11 @@ function buildMetaCampaign(
     placements: resolved.placements,
     publisherPlatforms: resolved.publisherPlatforms,
     instagramPositions: resolved.instagramPositions,
+    facebookPositions: resolved.facebookPositions,
     placementStrategy: resolved.placementStrategy,
     metaChannelPreference: channelPreference,
+    primaryChannel: resolved.primaryChannel,
+    primaryPlacement: resolved.primaryPlacement,
     adGroups,
     ads: adGroups.flatMap((g) => g.ads),
     keywords: [],
@@ -210,7 +223,7 @@ function buildMetaCampaign(
     status: "PAUSED",
     requiresApproval: true,
     riskLevel: dailyBudget > 200000 ? "MEDIUM" : "LOW",
-    strategy_summary: `${rec.rationale}${maldivasNote}`,
+    strategy_summary: `${rec.rationale}${instagramNote}${premiumNote}`,
   };
 }
 
@@ -238,6 +251,8 @@ function buildGoogleCampaign(
     audience,
     exclusions: audience.exclusions,
     placements: ["Google Search"],
+    primaryChannel: "GOOGLE",
+    primaryPlacement: "SEARCH",
     adGroups,
     ads: adGroups.flatMap((g) => g.ads),
     keywords,

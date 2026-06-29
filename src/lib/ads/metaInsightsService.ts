@@ -3,8 +3,12 @@ import {
   canUseMetaInsights,
   isMockMode,
 } from "@/lib/utils/config";
+import { channelPlacementDisplayName } from "@/lib/ads/metaPlacements";
 
 export interface PlacementMetricRow {
+  platform: string;
+  channel: string;
+  placement: string;
   publisher_platform: string;
   platform_position: string;
   spend: number;
@@ -13,7 +17,9 @@ export interface PlacementMetricRow {
   leads: number;
   ctr: number;
   cpc: number;
+  cpm: number;
   cpl: number;
+  recommendation?: string;
 }
 
 export interface MetaInsightsResult {
@@ -25,6 +31,105 @@ export interface MetaInsightsResult {
 }
 
 const INSTAGRAM_POSITIONS = ["stream", "story", "reels", "explore", "profile_feed"];
+
+/** Perfiles mock por placement — reflejan comportamiento esperado en demo */
+const MOCK_PROFILES: Record<
+  string,
+  { reach: number; ctr: number; leadRate: number; spendShare: number }
+> = {
+  "instagram:reels": { reach: 1.8, ctr: 0.9, leadRate: 0.04, spendShare: 0.28 },
+  "instagram:story": { reach: 1.2, ctr: 1.6, leadRate: 0.06, spendShare: 0.22 },
+  "instagram:stream": { reach: 1.0, ctr: 1.1, leadRate: 0.12, spendShare: 0.3 },
+  "instagram:explore": { reach: 1.3, ctr: 0.8, leadRate: 0.05, spendShare: 0.1 },
+  "facebook:feed": { reach: 0.7, ctr: 0.6, leadRate: 0.03, spendShare: 0.08 },
+  "google:search": { reach: 0.4, ctr: 3.5, leadRate: 0.15, spendShare: 1 },
+};
+
+function seedFromId(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 997;
+  return h / 997;
+}
+
+function buildMockRow(
+  plan: CampaignPlan,
+  publisher: string,
+  position: string,
+  dailyBudget: number
+): PlacementMetricRow {
+  const key = `${publisher}:${position}`;
+  const profile = MOCK_PROFILES[key] ?? {
+    reach: 1,
+    ctr: 1,
+    leadRate: 0.05,
+    spendShare: 0.2,
+  };
+  const jitter = 0.85 + seedFromId(`${plan.id}-${key}`) * 0.3;
+  const spend = Math.round(dailyBudget * profile.spendShare * 14 * jitter);
+  const impressions = Math.floor(spend * 18 * profile.reach * jitter);
+  const ctr = profile.ctr * jitter;
+  const clicks = Math.max(1, Math.floor(impressions * (ctr / 100)));
+  const leads = Math.max(
+    publisher === "google" ? 1 : 0,
+    Math.floor(clicks * profile.leadRate * jitter)
+  );
+  const cpc = clicks > 0 ? spend / clicks : 0;
+  const cpm = impressions > 0 ? (spend / impressions) * 1000 : 0;
+  const cpl = leads > 0 ? spend / leads : 0;
+  const { channel, placement } = channelPlacementDisplayName(publisher, position);
+
+  return {
+    platform: plan.platform,
+    channel,
+    placement,
+    publisher_platform: publisher,
+    platform_position: position,
+    spend,
+    impressions,
+    clicks,
+    leads,
+    ctr: Math.round(ctr * 100) / 100,
+    cpc: Math.round(cpc * 100) / 100,
+    cpm: Math.round(cpm * 100) / 100,
+    cpl: Math.round(cpl * 100) / 100,
+    recommendation: mockRecommendation(publisher, position, leads, spend, cpl),
+  };
+}
+
+function mockRecommendation(
+  publisher: string,
+  position: string,
+  leads: number,
+  spend: number,
+  cpl: number
+): string {
+  if (leads === 0 && spend > 15000) {
+    return "Pausar — consume presupuesto sin generar leads";
+  }
+  if (publisher === "instagram" && position === "reels") {
+    return leads > 2
+      ? "Buen alcance — considerar aumentar presupuesto (requiere aprobación)"
+      : "Mantener para awareness visual";
+  }
+  if (publisher === "instagram" && position === "story") {
+    return "CTR fuerte — ideal para engagement y consultas rápidas";
+  }
+  if (publisher === "instagram" && position === "stream") {
+    return leads > 3
+      ? "Mejor conversión a WhatsApp — escalar con aprobación"
+      : "Priorizar para leads WhatsApp";
+  }
+  if (publisher === "facebook") {
+    return "Rol de apoyo — mantener presupuesto bajo";
+  }
+  if (publisher === "google") {
+    return "Menor volumen, mayor intención — mantener para búsquedas premium";
+  }
+  if (cpl > 0 && cpl < 8000) {
+    return "Rendimiento sólido — evaluar aumento de presupuesto (requiere aprobación)";
+  }
+  return "Monitorear 7 días más";
+}
 
 export async function fetchMetaPlacementInsights(
   plan: CampaignPlan,
@@ -78,16 +183,26 @@ export async function fetchMetaPlacementInsights(
       const leads =
         row.actions?.find((a) => a.action_type === "lead")?.value ?? "0";
       const leadCount = parseInt(leads, 10);
+      const publisher = row.publisher_platform ?? "unknown";
+      const position = row.platform_position ?? "unknown";
+      const { channel, placement } = channelPlacementDisplayName(
+        publisher,
+        position
+      );
 
       return {
-        publisher_platform: row.publisher_platform ?? "unknown",
-        platform_position: row.platform_position ?? "unknown",
+        platform: plan.platform,
+        channel,
+        placement,
+        publisher_platform: publisher,
+        platform_position: position,
         spend,
         impressions,
         clicks,
         leads: leadCount,
         ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
         cpc: clicks > 0 ? spend / clicks : 0,
+        cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
         cpl: leadCount > 0 ? spend / leadCount : 0,
       };
     });
@@ -101,56 +216,43 @@ export async function fetchMetaPlacementInsights(
 export function buildSimulatedPlacementInsights(
   plan: CampaignPlan
 ): MetaInsightsResult {
+  const dailyBudget = plan.dailyBudget || 50000;
+  const rows: PlacementMetricRow[] = [];
+
+  if (plan.platform === "GOOGLE") {
+    rows.push(buildMockRow(plan, "google", "search", dailyBudget));
+    return aggregatePlacementRows(rows, "mock", true);
+  }
+
   const igPositions =
     plan.instagramPositions?.length
       ? plan.instagramPositions
       : (["stream", "story", "reels"] as const);
 
-  const rows: PlacementMetricRow[] = [];
-
   for (const pos of igPositions) {
-    const spend = 20000 + Math.random() * 40000;
-    const impressions = 1500 + Math.random() * 3500;
-    const clicks = Math.floor(impressions * (0.01 + Math.random() * 0.025));
-    const leads = Math.floor(clicks * (0.03 + Math.random() * 0.1));
-
-    rows.push({
-      publisher_platform: "instagram",
-      platform_position: pos,
-      spend: Math.round(spend),
-      impressions: Math.floor(impressions),
-      clicks,
-      leads,
-      ctr: impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0,
-      cpc: clicks > 0 ? Math.round((spend / clicks) * 100) / 100 : 0,
-      cpl: leads > 0 ? Math.round((spend / leads) * 100) / 100 : 0,
-    });
+    rows.push(buildMockRow(plan, "instagram", pos, dailyBudget));
   }
 
   if (
     plan.publisherPlatforms?.includes("facebook") ||
-    plan.placementStrategy === "MANUAL_ALL_META" ||
+    plan.metaChannelPreference === "FACEBOOK_COMPLEMENT" ||
+    plan.metaChannelPreference === "INSTAGRAM_PRIORITY" ||
     plan.metaChannelPreference === "META_FULL"
   ) {
-    const spend = 8000 + Math.random() * 15000;
-    const impressions = 800 + Math.random() * 2000;
-    const clicks = Math.floor(impressions * (0.006 + Math.random() * 0.015));
-    const leads = Math.floor(clicks * (0.02 + Math.random() * 0.06));
-
-    rows.push({
-      publisher_platform: "facebook",
-      platform_position: "feed",
-      spend: Math.round(spend),
-      impressions: Math.floor(impressions),
-      clicks,
-      leads,
-      ctr: impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : 0,
-      cpc: clicks > 0 ? Math.round((spend / clicks) * 100) / 100 : 0,
-      cpl: leads > 0 ? Math.round((spend / leads) * 100) / 100 : 0,
-    });
+    rows.push(buildMockRow(plan, "facebook", "feed", dailyBudget));
   }
 
   return aggregatePlacementRows(rows, "mock", true);
+}
+
+export function buildAllChannelMockInsights(
+  campaigns: CampaignPlan[]
+): PlacementMetricRow[] {
+  const rows: PlacementMetricRow[] = [];
+  for (const plan of campaigns) {
+    rows.push(...buildSimulatedPlacementInsights(plan).rows);
+  }
+  return rows;
 }
 
 function aggregatePlacementRows(
@@ -164,14 +266,21 @@ function aggregatePlacementRows(
   for (const row of rows) {
     const pub = row.publisher_platform;
     if (!byPublisher[pub]) {
-      byPublisher[pub] = emptyRow(pub, "all");
+      byPublisher[pub] = emptyRow(pub, "all", row.platform, row.channel, "All");
     }
     mergeRow(byPublisher[pub], row);
 
     if (pub === "instagram" && INSTAGRAM_POSITIONS.includes(row.platform_position)) {
       const key = row.platform_position;
       if (!byInstagramPosition[key]) {
-        byInstagramPosition[key] = emptyRow("instagram", key);
+        const { channel, placement } = channelPlacementDisplayName("instagram", key);
+        byInstagramPosition[key] = emptyRow(
+          "instagram",
+          key,
+          row.platform,
+          channel,
+          placement
+        );
       }
       mergeRow(byInstagramPosition[key], row);
     }
@@ -185,9 +294,15 @@ function aggregatePlacementRows(
 
 function emptyRow(
   publisher_platform: string,
-  platform_position: string
+  platform_position: string,
+  platform: string,
+  channel: string,
+  placement: string
 ): PlacementMetricRow {
   return {
+    platform,
+    channel,
+    placement,
     publisher_platform,
     platform_position,
     spend: 0,
@@ -196,6 +311,7 @@ function emptyRow(
     leads: 0,
     ctr: 0,
     cpc: 0,
+    cpm: 0,
     cpl: 0,
   };
 }
@@ -215,6 +331,10 @@ function recalcRates(map: Record<string, PlacementMetricRow>) {
         : 0;
     row.cpc =
       row.clicks > 0 ? Math.round((row.spend / row.clicks) * 100) / 100 : 0;
+    row.cpm =
+      row.impressions > 0
+        ? Math.round((row.spend / row.impressions) * 1000 * 100) / 100
+        : 0;
     row.cpl =
       row.leads > 0 ? Math.round((row.spend / row.leads) * 100) / 100 : 0;
   }

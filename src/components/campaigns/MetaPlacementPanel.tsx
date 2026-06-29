@@ -134,6 +134,9 @@ function MetaPlacementEditor({
       placementStrategy: resolved.placementStrategy,
       publisherPlatforms: resolved.publisherPlatforms,
       instagramPositions: resolved.instagramPositions,
+      facebookPositions: resolved.facebookPositions,
+      primaryChannel: resolved.primaryChannel,
+      primaryPlacement: resolved.primaryPlacement,
       placements: resolved.placements,
     });
     setSaving(false);

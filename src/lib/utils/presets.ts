@@ -24,6 +24,8 @@ export const MALDIVAS_OUTDOOR_PRESET: CreateObjectiveInput = {
   creativeTypes: ["image", "video", "instagram", "web"],
   restrictions:
     "No mostrar a públicos equivocados. Excluir búsquedas de barato, usado, interior, electrodomésticos. Posicionamiento: lujo, diseño, calidad, durabilidad, terminaciones premium.",
+  metaChannelPreference: "INSTAGRAM_PRIORITY",
+  placementStrategy: "MANUAL_INSTAGRAM_FOCUS",
 };
 
 export const MALDIVAS_BUDGET_PRESETS_ARS = {

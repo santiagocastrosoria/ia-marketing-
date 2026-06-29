@@ -159,15 +159,27 @@ export function analyzeMetrics(
 
   const placementInsights = buildPlacementInsights(metrics, campaign);
 
-  return { summary, insights, recommendations, placementInsights };
+  const placementRecs =
+    campaign && placementInsights
+      ? analyzePlacementRecommendations(
+          campaign,
+          extractPlacementBreakdown(metrics) ??
+            buildSimulatedPlacementInsights(campaign)
+        )
+      : [];
+
+  return {
+    summary,
+    insights,
+    recommendations: [...recommendations, ...placementRecs],
+    placementInsights,
+  };
 }
 
 function buildPlacementInsights(
   metrics: CampaignMetrics[],
   campaign?: CampaignPlan
 ): MetricsAnalysis["placementInsights"] | undefined {
-  if (campaign?.platform !== "META") return undefined;
-
   let breakdown: MetaInsightsResult | null = extractPlacementBreakdown(metrics);
 
   if (!breakdown && campaign) {
@@ -178,13 +190,14 @@ function buildPlacementInsights(
 
   const ig = breakdown.byPublisher.instagram;
   const fb = breakdown.byPublisher.facebook;
+  const google = breakdown.byPublisher.google;
   const simulated = breakdown.simulated || isMockMode();
 
   let instagramVsFacebook: string | undefined;
   if (ig && fb) {
-    instagramVsFacebook = `Instagram: CTR ${ig.ctr.toFixed(2)}%, CPL ${formatARS(ig.cpl)} vs Facebook: CTR ${fb.ctr.toFixed(2)}%, CPL ${formatARS(fb.cpl)}.`;
+    instagramVsFacebook = `Instagram lidera conversión (CPL ${formatARS(ig.cpl)}) vs Facebook de apoyo (CPL ${formatARS(fb.cpl)}, CTR ${fb.ctr.toFixed(2)}%).`;
   } else if (ig) {
-    instagramVsFacebook = `Solo datos Instagram: CTR ${ig.ctr.toFixed(2)}%, ${ig.leads} leads.`;
+    instagramVsFacebook = `Instagram: CTR ${ig.ctr.toFixed(2)}%, ${ig.leads} leads, CPL ${formatARS(ig.cpl)}.`;
   }
 
   const reels = breakdown.byInstagramPosition.reels;
@@ -193,10 +206,47 @@ function buildPlacementInsights(
 
   let reelsVsStoriesVsFeed: string | undefined;
   const parts: string[] = [];
-  if (reels) parts.push(`Reels CTR ${reels.ctr.toFixed(2)}%`);
-  if (stories) parts.push(`Stories CTR ${stories.ctr.toFixed(2)}%`);
-  if (feed) parts.push(`Feed CTR ${feed.ctr.toFixed(2)}%`);
+  if (reels) {
+    parts.push(
+      `Reels: mejor alcance (${reels.impressions.toLocaleString("es-AR")} impr.), CTR ${reels.ctr.toFixed(2)}%`
+    );
+  }
+  if (stories) {
+    parts.push(`Stories: mejor CTR (${stories.ctr.toFixed(2)}%)`);
+  }
+  if (feed) {
+    parts.push(
+      `Feed: mejor conversión a WhatsApp (${feed.leads} leads, CPL ${formatARS(feed.cpl)})`
+    );
+  }
   if (parts.length) reelsVsStoriesVsFeed = parts.join(" · ");
+
+  const channelInsights: string[] = [];
+  if (reels) {
+    channelInsights.push(
+      "Instagram Reels tiene mejor alcance — ideal para calentamiento visual premium."
+    );
+  }
+  if (stories) {
+    channelInsights.push(
+      "Instagram Stories tiene mejor CTR — útil para engagement y consultas rápidas."
+    );
+  }
+  if (feed) {
+    channelInsights.push(
+      "Instagram Feed convierte mejor a WhatsApp — priorizar para leads calificados."
+    );
+  }
+  if (fb) {
+    channelInsights.push(
+      "Facebook funciona como apoyo — mantener presupuesto complementario bajo."
+    );
+  }
+  if (google) {
+    channelInsights.push(
+      `Google Search trae menor volumen (${google.clicks} clics) pero mayor intención (CTR ${google.ctr.toFixed(2)}%).`
+    );
+  }
 
   const topPlacement = Object.entries(breakdown.byInstagramPosition).sort(
     (a, b) => b[1].leads - a[1].leads
@@ -209,7 +259,81 @@ function buildPlacementInsights(
     topPlacement: topPlacement
       ? `${instagramPositionLabel(topPlacement[0] as InstagramPosition)} (${topPlacement[1].leads} leads)`
       : undefined,
+    channelInsights,
   };
+}
+
+export function analyzePlacementRecommendations(
+  campaign: CampaignPlan,
+  breakdown: MetaInsightsResult
+): Omit<Recommendation, "id" | "campaign_plan_id" | "status" | "created_at">[] {
+  const recs: Omit<
+    Recommendation,
+    "id" | "campaign_plan_id" | "status" | "created_at"
+  >[] = [];
+
+  for (const row of breakdown.rows) {
+    if (row.leads === 0 && row.spend > 12000) {
+      recs.push({
+        type: "PAUSE_AD",
+        title: `Pausar ${row.channel} ${row.placement}`,
+        description: `${row.channel} ${row.placement} consume presupuesto sin generar leads.`,
+        reason: `Gasto ${formatARS(row.spend)} con 0 leads en modo demo.`,
+        supporting_metrics_json: {
+          channel: row.channel,
+          placement: row.placement,
+          spend: row.spend,
+        },
+        expected_impact: "MEDIUM",
+        risk_level: "LOW",
+        requires_approval: false,
+      });
+    }
+
+    if (
+      row.leads >= 3 &&
+      row.recommendation?.includes("aumentar presupuesto")
+    ) {
+      recs.push({
+        type: "CHANGE_BUDGET",
+        title: `Aumentar presupuesto en ${row.channel} ${row.placement}`,
+        description: row.recommendation ?? "Placement con buen rendimiento.",
+        reason: `${row.leads} leads con CPL ${formatARS(row.cpl)}.`,
+        supporting_metrics_json: {
+          channel: row.channel,
+          placement: row.placement,
+          leads: row.leads,
+          cpl: row.cpl,
+        },
+        expected_impact: "HIGH",
+        risk_level: "MEDIUM",
+        requires_approval: true,
+      });
+    }
+  }
+
+  if (
+    campaign.platform === "META" &&
+    campaign.primaryChannel === "INSTAGRAM" &&
+    campaign.status === "PAUSED"
+  ) {
+    recs.push({
+      type: "CREATE_WARMUP",
+      title: "Activar campaña Instagram (requiere aprobación)",
+      description:
+        "La estrategia prioriza Instagram. Activar solo tras revisar creatividades premium.",
+      reason: `Campaña ${campaign.campaignName} en DRAFT/PAUSED con foco Instagram.`,
+      supporting_metrics_json: {
+        primaryChannel: campaign.primaryChannel,
+        placementStrategy: campaign.placementStrategy,
+      },
+      expected_impact: "HIGH",
+      risk_level: "MEDIUM",
+      requires_approval: true,
+    });
+  }
+
+  return recs;
 }
 
 function aggregateMetrics(metrics: CampaignMetrics[]) {

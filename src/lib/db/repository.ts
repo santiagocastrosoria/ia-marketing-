@@ -17,7 +17,7 @@ import type {
   Recommendation,
   StrategyPlan,
 } from "@/lib/types/marketing";
-import { toObjectiveDbRow } from "@/lib/db/objectiveMapper";
+import { toObjectiveDbRow, hydrateObjectiveFromRow } from "@/lib/db/objectiveMapper";
 import type {
   BrandDocument,
   BrandKnowledgeChunk,
@@ -475,7 +475,7 @@ class SupabaseRepository implements Repository {
       .select()
       .single();
     if (error) throw error;
-    return inserted as MarketingObjective;
+    return hydrateObjectiveFromRow(inserted as MarketingObjective);
   }
 
   async getObjectives(): Promise<MarketingObjective[]> {
@@ -487,7 +487,7 @@ class SupabaseRepository implements Repository {
       .in("business_id", businessIds)
       .order("created_at", { ascending: false });
     if (error) throw error;
-    return data as MarketingObjective[];
+    return (data as MarketingObjective[]).map(hydrateObjectiveFromRow);
   }
 
   async getObjective(id: string): Promise<MarketingObjective | undefined> {
@@ -499,7 +499,7 @@ class SupabaseRepository implements Repository {
     if (error || !data) return undefined;
     const businessIds = await this.getOwnedBusinessIds();
     return businessIds.includes(data.business_id as string)
-      ? (data as MarketingObjective)
+      ? hydrateObjectiveFromRow(data as MarketingObjective)
       : undefined;
   }
 
@@ -566,10 +566,18 @@ class SupabaseRepository implements Repository {
               ? {
                   publisherPlatforms: data.publisherPlatforms,
                   instagramPositions: data.instagramPositions,
+                  facebookPositions: data.facebookPositions,
                   placementStrategy: data.placementStrategy,
                   metaChannelPreference: data.metaChannelPreference,
+                  primaryChannel: data.primaryChannel,
+                  primaryPlacement: data.primaryPlacement,
                 }
-              : undefined,
+              : data.platform === "GOOGLE"
+                ? {
+                    primaryChannel: data.primaryChannel,
+                    primaryPlacement: data.primaryPlacement,
+                  }
+                : undefined,
         },
         utm_json: data.trackingUTM,
         status: data.status,
@@ -589,8 +597,11 @@ class SupabaseRepository implements Repository {
       metaPlacements?: {
         publisherPlatforms?: CampaignPlan["publisherPlatforms"];
         instagramPositions?: CampaignPlan["instagramPositions"];
+        facebookPositions?: CampaignPlan["facebookPositions"];
         placementStrategy?: CampaignPlan["placementStrategy"];
         metaChannelPreference?: CampaignPlan["metaChannelPreference"];
+        primaryChannel?: CampaignPlan["primaryChannel"];
+        primaryPlacement?: CampaignPlan["primaryPlacement"];
       };
     };
     const audience = row.targeting_json as CampaignPlan["audience"];
@@ -615,8 +626,11 @@ class SupabaseRepository implements Repository {
       placements: audience?.placements ?? meta?.instagramPositions?.map(String) ?? [],
       publisherPlatforms: meta?.publisherPlatforms,
       instagramPositions: meta?.instagramPositions,
+      facebookPositions: meta?.facebookPositions,
       placementStrategy: meta?.placementStrategy,
       metaChannelPreference: meta?.metaChannelPreference,
+      primaryChannel: meta?.primaryChannel,
+      primaryPlacement: meta?.primaryPlacement,
       adGroups: adsJson?.adGroups ?? [],
       ads: adsJson?.ads ?? [],
       keywords: (row.keywords_json as CampaignPlan["keywords"]) ?? [],
@@ -678,8 +692,11 @@ class SupabaseRepository implements Repository {
     if (
       updates.publisherPlatforms ||
       updates.instagramPositions ||
+      updates.facebookPositions ||
       updates.placementStrategy ||
-      updates.metaChannelPreference
+      updates.metaChannelPreference ||
+      updates.primaryChannel ||
+      updates.primaryPlacement
     ) {
       const { data: existing } = await this.client
         .from("campaign_plans")
@@ -698,11 +715,20 @@ class SupabaseRepository implements Repository {
           ...(updates.instagramPositions && {
             instagramPositions: updates.instagramPositions,
           }),
+          ...(updates.facebookPositions && {
+            facebookPositions: updates.facebookPositions,
+          }),
           ...(updates.placementStrategy && {
             placementStrategy: updates.placementStrategy,
           }),
           ...(updates.metaChannelPreference && {
             metaChannelPreference: updates.metaChannelPreference,
+          }),
+          ...(updates.primaryChannel && {
+            primaryChannel: updates.primaryChannel,
+          }),
+          ...(updates.primaryPlacement && {
+            primaryPlacement: updates.primaryPlacement,
           }),
         },
       };

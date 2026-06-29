@@ -19,6 +19,7 @@ type AnalysisResult = {
     instagramVsFacebook?: string;
     reelsVsStoriesVsFeed?: string;
     topPlacement?: string;
+    channelInsights?: string[];
   };
 };
 
@@ -246,6 +247,12 @@ export default function MetricsPage() {
                     {analysis.placementInsights.topPlacement}
                   </p>
                 )}
+                {analysis.placementInsights.channelInsights?.map((line) => (
+                  <p key={line}>
+                    <span className="font-semibold">Insight: </span>
+                    {line}
+                  </p>
+                ))}
               </div>
             )}
             {analysis.insights.length > 0 && (
@@ -398,8 +405,48 @@ function PlacementBreakdownSection({
     <div className="space-y-4">
       <h2 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
         <Camera className="h-5 w-5 text-pink-600" />
-        Desglose Meta / Instagram
+        Métricas por canal y placement
       </h2>
+
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <p className="px-4 py-3 text-sm font-medium text-slate-700 bg-slate-50 border-b border-slate-100">
+          Desglose unificado — Instagram Reels, Stories, Feed, Facebook Feed, Google Search
+        </p>
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-4 py-2 text-left font-medium text-slate-500">Plataforma</th>
+              <th className="px-4 py-2 text-left font-medium text-slate-500">Canal</th>
+              <th className="px-4 py-2 text-left font-medium text-slate-500">Placement</th>
+              <th className="px-4 py-2 text-right font-medium text-slate-500">Gasto ARS</th>
+              <th className="px-4 py-2 text-right font-medium text-slate-500">CPC</th>
+              <th className="px-4 py-2 text-right font-medium text-slate-500">CTR</th>
+              <th className="px-4 py-2 text-right font-medium text-slate-500">CPM</th>
+              <th className="px-4 py-2 text-right font-medium text-slate-500">CPL</th>
+              <th className="px-4 py-2 text-right font-medium text-slate-500">Leads</th>
+              <th className="px-4 py-2 text-left font-medium text-slate-500">Recomendación</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {breakdown.rows.map((row) => (
+              <tr key={`${row.publisher_platform}-${row.platform_position}`} className="hover:bg-slate-50">
+                <td className="px-4 py-2 font-medium">{row.platform}</td>
+                <td className="px-4 py-2">{row.channel}</td>
+                <td className="px-4 py-2">{row.placement}</td>
+                <td className="px-4 py-2 text-right">{formatARS(row.spend)}</td>
+                <td className="px-4 py-2 text-right">{formatARS(row.cpc)}</td>
+                <td className="px-4 py-2 text-right">{row.ctr.toFixed(2)}%</td>
+                <td className="px-4 py-2 text-right">{formatARS(row.cpm)}</td>
+                <td className="px-4 py-2 text-right">{formatARS(row.cpl)}</td>
+                <td className="px-4 py-2 text-right">{row.leads}</td>
+                <td className="px-4 py-2 text-xs text-slate-600 max-w-[200px]">
+                  {row.recommendation ?? "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {publishers.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">

@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       const analysis = analyzeMetrics(metrics, campaign);
 
       const placementBreakdown =
-        campaign.platform === "META"
+        campaign.platform === "META" || campaign.platform === "GOOGLE"
           ? await fetchMetaPlacementInsights(campaign)
           : null;
 

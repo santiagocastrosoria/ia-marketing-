@@ -8,6 +8,11 @@ import type { CampaignPlan } from "@/lib/types/marketing";
 import { formatARSDaily, formatARSMonthly } from "@/lib/utils/formatARS";
 import { fetchJson, FetchApiError } from "@/lib/api/fetchClient";
 import { MetaPlacementPanel } from "@/components/campaigns/MetaPlacementPanel";
+import {
+  primaryChannelLabel,
+  primaryPlacementLabel,
+  placementStrategyLabel,
+} from "@/lib/ads/metaPlacements";
 import { Loader2, Pause, ShieldCheck, Play } from "lucide-react";
 
 export default function CampaignsPage() {
@@ -133,10 +138,24 @@ export default function CampaignsPage() {
                     <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
                       <span>Objetivo: {c.objective}</span>
                       <span>Embudo: {c.funnelStage}</span>
+                      <span>Canal: {primaryChannelLabel(c.primaryChannel)}</span>
+                      <span>
+                        Placement principal: {primaryPlacementLabel(c.primaryPlacement)}
+                      </span>
+                      {c.placementStrategy && (
+                        <span>
+                          Estrategia: {placementStrategyLabel(c.placementStrategy)}
+                        </span>
+                      )}
                       <span>Presupuesto: {formatARSDaily(c.dailyBudget)}</span>
                       <span>Estimado mensual: {formatARSMonthly(c.monthlyBudgetEstimate)}</span>
                       <span>{c.adGroups.length} ad groups/sets</span>
                       <span>{c.ads.length} anuncios</span>
+                      {c.requiresApproval && (
+                        <span className="text-amber-700 font-medium">
+                          Requiere aprobación
+                        </span>
+                      )}
                       {c.keywords.length > 0 && (
                         <span>{c.keywords.length} keywords</span>
                       )}

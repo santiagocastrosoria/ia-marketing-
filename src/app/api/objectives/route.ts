@@ -3,7 +3,7 @@ import { auditLog } from "@/lib/security/auditLogger";
 import { apiErrorResponse, apiFail } from "@/lib/api/apiError";
 import { logApiError } from "@/lib/api/logApiError";
 import { getOrCreateDefaultBusiness, resolveBusinessId } from "@/lib/db/businessService";
-import { fromCreateObjectiveBody } from "@/lib/db/objectiveMapper";
+import { fromCreateObjectiveBody, hydrateObjectiveFromRow } from "@/lib/db/objectiveMapper";
 import { getAuthContext, unauthorizedResponse } from "@/lib/api/withAuth";
 import type { CreateObjectiveInput, MarketingObjective } from "@/lib/types/marketing";
 
@@ -110,6 +110,8 @@ export async function POST(request: Request) {
       creativeTypes: body.creativeTypes,
       restrictions: body.restrictions,
       industry: body.industry,
+      metaChannelPreference: body.metaChannelPreference,
+      placementStrategy: body.placementStrategy,
     });
 
     console.info(`[${route}]`, {
@@ -121,8 +123,8 @@ export async function POST(request: Request) {
       payload: sanitized,
     });
 
-    const objective = await repo.createObjective(
-      toMarketingObjectiveRow(business.id, dbRow)
+    const objective = hydrateObjectiveFromRow(
+      await repo.createObjective(toMarketingObjectiveRow(business.id, dbRow))
     );
 
     await auditLog({
@@ -167,7 +169,7 @@ export async function GET() {
   const route = "objectives GET";
   try {
     const { userId, userEmail, repo } = await getAuthContext();
-    const objectives = await repo.getObjectives();
+    const objectives = (await repo.getObjectives()).map(hydrateObjectiveFromRow);
     console.info(`[${route}]`, { userId, userEmail, count: objectives.length });
     return NextResponse.json({ error: false, objectives });
   } catch (error) {

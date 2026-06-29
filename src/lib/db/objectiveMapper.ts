@@ -1,4 +1,8 @@
 import type { MarketingObjective } from "@/lib/types/marketing";
+import {
+  encodeMetaInRestrictions,
+  decodeMetaFromRestrictions,
+} from "@/lib/ads/metaObjectiveSettings";
 
 /**
  * Columnas conocidas en marketing_objectives (schema.sql base).
@@ -64,8 +68,15 @@ export function fromCreateObjectiveBody(
     creativeTypes?: string[];
     restrictions?: string;
     industry?: string;
+    metaChannelPreference?: string;
+    placementStrategy?: string;
   }
 ): ObjectiveDbInsert {
+  const metaSettings = {
+    metaChannelPreference: body.metaChannelPreference as MarketingObjective["meta_channel_preference"],
+    placementStrategy: body.placementStrategy as MarketingObjective["placement_strategy"],
+  };
+
   return toObjectiveDbRow({
     business_id: businessId,
     goal: body.goal,
@@ -80,7 +91,27 @@ export function fromCreateObjectiveBody(
     landing_url: body.landingUrl,
     whatsapp_url: body.whatsappUrl,
     creative_types: body.creativeTypes as MarketingObjective["creative_types"],
-    restrictions: body.restrictions,
+    restrictions: encodeMetaInRestrictions(body.restrictions, metaSettings),
     industry: body.industry,
+    meta_channel_preference: metaSettings.metaChannelPreference,
+    placement_strategy: metaSettings.placementStrategy,
   });
+}
+
+export function hydrateObjectiveFromRow(
+  row: MarketingObjective
+): MarketingObjective {
+  const fromRestrictions = decodeMetaFromRestrictions(row.restrictions);
+  const restrictions = row.restrictions
+    ? row.restrictions.replace(/\[meta_settings:[^\]]+\]/, "").trim()
+    : undefined;
+
+  return {
+    ...row,
+    restrictions: restrictions || undefined,
+    meta_channel_preference:
+      row.meta_channel_preference ?? fromRestrictions.metaChannelPreference,
+    placement_strategy:
+      row.placement_strategy ?? fromRestrictions.placementStrategy,
+  };
 }

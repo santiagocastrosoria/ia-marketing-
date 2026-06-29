@@ -12,7 +12,13 @@ import type {
   BrandAwarenessLevel,
   Platforms,
   CreativeType,
+  MetaChannelPreference,
 } from "@/lib/types/marketing";
+import {
+  META_CHANNEL_OPTIONS,
+  defaultMetaChannelForBusiness,
+  isMaldivasBrand,
+} from "@/lib/ads/metaPlacements";
 import { Loader2, Sparkles, AlertTriangle } from "lucide-react";
 
 function formatObjectiveError(err: unknown): { code?: string; message: string; details?: string } {
@@ -48,7 +54,19 @@ export default function ObjectivesPage() {
   }, []);
 
   const update = (field: keyof CreateObjectiveInput, value: unknown) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [field]: value };
+      if (field === "businessName" || field === "industry" || field === "product") {
+        const name = field === "businessName" ? (value as string) : next.businessName;
+        const industry = field === "industry" ? (value as string) : next.industry;
+        const product = field === "product" ? (value as string) : next.product;
+        if (isMaldivasBrand(name, industry, product)) {
+          next.metaChannelPreference = "INSTAGRAM_PRIORITY";
+          next.placementStrategy = "MANUAL_INSTAGRAM_FOCUS";
+        }
+      }
+      return next;
+    });
   };
 
   const loadPreset = () => setForm(MALDIVAS_OUTDOOR_PRESET);
@@ -84,6 +102,8 @@ export default function ObjectivesPage() {
           whatsappUrl: form.whatsappUrl,
           creativeTypes: form.creativeTypes,
           restrictions: form.restrictions,
+          metaChannelPreference: form.metaChannelPreference,
+          placementStrategy: form.placementStrategy,
           businessId: businessId || undefined,
         }),
       });
@@ -265,6 +285,47 @@ export default function ObjectivesPage() {
               </select>
             </Field>
           </div>
+
+          {(form.platforms === "META" || form.platforms === "BOTH") && (
+            <Field label="Canal dentro de Meta Ads">
+              <select
+                className={inputClassName()}
+                value={
+                  form.metaChannelPreference ??
+                  defaultMetaChannelForBusiness(
+                    form.businessName,
+                    form.industry,
+                    form.product
+                  )
+                }
+                onChange={(e) =>
+                  update("metaChannelPreference", e.target.value as MetaChannelPreference)
+                }
+              >
+                {META_CHANNEL_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-slate-600 bg-indigo-50 border border-indigo-100 rounded-lg p-3">
+                Instagram es recomendado para productos visuales premium, contenido
+                aspiracional, Reels, Stories y consultas por WhatsApp.
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {META_CHANNEL_OPTIONS.find(
+                  (o) =>
+                    o.id ===
+                    (form.metaChannelPreference ??
+                      defaultMetaChannelForBusiness(
+                        form.businessName,
+                        form.industry,
+                        form.product
+                      ))
+                )?.description}
+              </p>
+            </Field>
+          )}
 
           <Field label="Cliente ideal" required>
             <textarea

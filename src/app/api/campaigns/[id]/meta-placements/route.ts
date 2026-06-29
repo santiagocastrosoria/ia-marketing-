@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { apiErrorResponse, apiFail } from "@/lib/api/apiError";
 import { getAuthContext, unauthorizedResponse } from "@/lib/api/withAuth";
-import type { CampaignPlan } from "@/lib/types/marketing";
+import { checkApprovalGate } from "@/lib/approvals/approvalGate";
+import type { CampaignPlan, ProposedAction } from "@/lib/types/marketing";
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { repo } = await getAuthContext();
+    const { userId, repo } = await getAuthContext();
     const { id } = await params;
     const body = (await request.json()) as Partial<CampaignPlan>;
 
@@ -24,11 +25,48 @@ export async function PATCH(
       );
     }
 
+    const placementChanged =
+      (body.placementStrategy && body.placementStrategy !== plan.placementStrategy) ||
+      (body.metaChannelPreference &&
+        body.metaChannelPreference !== plan.metaChannelPreference);
+
+    if (
+      placementChanged &&
+      (plan.status === "ACTIVE" || plan.status === "APPROVED")
+    ) {
+      const action: ProposedAction = {
+        type: "CHANGE_PLACEMENT_STRATEGY",
+        entityType: "campaign_plan",
+        entityId: id,
+        campaignPlanId: id,
+        platform: "META",
+        payload: {
+          previousPlacementStrategy: plan.placementStrategy,
+          newPlacementStrategy: body.placementStrategy,
+          previousChannelPreference: plan.metaChannelPreference,
+          newChannelPreference: body.metaChannelPreference,
+        },
+      };
+
+      const gate = await checkApprovalGate(action, userId);
+      if (!gate.allowed) {
+        return apiFail(
+          gate.reason,
+          "APPROVAL_REQUIRED",
+          403,
+          { approvalRequestId: gate.approvalRequestId }
+        );
+      }
+    }
+
     const updated = await repo.updateCampaignPlan(id, {
       publisherPlatforms: body.publisherPlatforms,
       instagramPositions: body.instagramPositions,
+      facebookPositions: body.facebookPositions,
       placementStrategy: body.placementStrategy,
       metaChannelPreference: body.metaChannelPreference,
+      primaryChannel: body.primaryChannel,
+      primaryPlacement: body.primaryPlacement,
       placements: body.placements,
     });
 

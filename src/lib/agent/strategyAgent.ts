@@ -12,6 +12,10 @@ import {
   MALDIVAS_NEGATIVE_KEYWORDS,
 } from "@/lib/utils/presets";
 import { formatARS } from "@/lib/utils/formatARS";
+import {
+  isMaldivasBrand,
+  defaultMetaChannelForBusiness,
+} from "@/lib/ads/metaPlacements";
 
 /** Umbrales de presupuesto diario en ARS */
 const ARS_THRESHOLDS = {
@@ -117,6 +121,13 @@ export function generateStrategy(
     whatsapp,
     brandKnowledge
   );
+  const instagramStrategyNotes = buildInstagramStrategyNotes(
+    objective,
+    isPremium,
+    warmup,
+    whatsapp,
+    brandKnowledge
+  );
   const budgetDistribution = getBudgetSplit(
     objective.platforms,
     dailyBudgetARS,
@@ -174,20 +185,24 @@ export function generateStrategy(
         "Verificar tracking de UTMs y conversiones",
         "Pausar variantes con CTR < 0.8%",
         "Validar calidad inicial de leads",
+        "Comparar rendimiento Instagram Reels vs Stories vs Feed",
       ],
       day14: [
         "Separar rendimiento por zona geográfica",
         "Agregar keywords negativas según búsquedas irrelevantes",
         "Duplicar anuncios ganadores en nuevas variantes pausadas",
         warmup ? "Evaluar si hay datos suficientes para remarketing" : "Escalar campañas ganadoras (con aprobación)",
+        "Priorizar placements Instagram que convierten a WhatsApp",
       ],
       day30: [
         "Optimizar distribución de presupuesto por plataforma",
         "Crear campañas de remarketing si hay audiencia suficiente",
         "Refinar mensajes filtradores para mejorar calidad de lead",
         "Documentar CPL por zona y ajustar segmentación",
+        "Evaluar Facebook solo como complemento si Instagram supera CPL objetivo",
       ],
     },
+    instagramStrategyNotes,
   };
 }
 
@@ -260,6 +275,23 @@ function buildDiagnosis(
     );
   }
 
+  const metaChannel =
+    objective.meta_channel_preference ??
+    defaultMetaChannelForBusiness(objective.industry, objective.industry, objective.product);
+
+  if (
+    metaChannel === "INSTAGRAM_PRIORITY" ||
+    metaChannel === "INSTAGRAM_ONLY" ||
+    isMaldivasBrand(objective.industry, objective.product, objective.goal)
+  ) {
+    parts.push(
+      "Instagram es el canal prioritario dentro de Meta Ads: contenido visual aspiracional, Reels y Stories para calentamiento, Feed y Stories para consultas por WhatsApp."
+    );
+    parts.push(
+      "Facebook cumple rol complementario (Feed de apoyo). Google Search captura búsquedas de alta intención cuando el presupuesto lo permite."
+    );
+  }
+
   if (objective.locations.length > 1) {
     parts.push(
       "Múltiples zonas detectadas: diferenciar estrategia entre Córdoba (menor CPL) y Buenos Aires (mayor CPL pero mejor ticket en productos premium)."
@@ -277,6 +309,69 @@ function buildDiagnosis(
   }
 
   return parts.join(" ");
+}
+
+function buildInstagramStrategyNotes(
+  objective: MarketingObjective,
+  isPremium: boolean,
+  warmup: boolean,
+  whatsapp: boolean,
+  brand?: BrandKnowledgeContext
+): string[] {
+  const maldivas = isMaldivasBrand(
+    objective.industry,
+    objective.product,
+    objective.goal
+  );
+  const usesInstagram =
+    maldivas ||
+    objective.meta_channel_preference === "INSTAGRAM_PRIORITY" ||
+    objective.meta_channel_preference === "INSTAGRAM_ONLY" ||
+    objective.meta_channel_preference === "FACEBOOK_COMPLEMENT" ||
+    objective.platforms !== "GOOGLE";
+
+  if (!usesInstagram) return [];
+
+  const notes: string[] = [
+    "Instagram es prioritario porque el producto es visual, aspiracional y se decide con inspiración (Reels, Stories, galerías, lifestyle outdoor).",
+  ];
+
+  if (warmup || maldivas) {
+    notes.push(
+      "Calentamiento en Instagram: Reels y Stories con lifestyle, exteriores, piletas y casas premium — sin mensajes genéricos de muebles."
+    );
+  }
+
+  if (whatsapp) {
+    notes.push(
+      "Consultas por WhatsApp: Instagram Feed y Stories con CTA directo a WhatsApp y copy filtrador premium (presupuesto, a medida, proyectos exclusivos)."
+    );
+  }
+
+  notes.push(
+    "Remarketing en Instagram: reimpactar interacciones de Instagram, visitantes web y personas que abrieron WhatsApp — solo con datos suficientes."
+  );
+  notes.push(
+    "Facebook complementario: usar Feed de apoyo cuando Instagram ya validó creatividades; no como canal principal."
+  );
+
+  if (objective.platforms === "BOTH" || objective.platforms === "GOOGLE") {
+    notes.push(
+      "Google Search: menor volumen pero mayor intención directa — ideal para captar búsquedas como 'muebles exterior premium' o 'reposeras pileta'."
+    );
+  }
+
+  if (maldivas) {
+    notes.push(
+      "Maldivas Outdoor: Reels para lifestyle premium; Feed/Stories para leads WhatsApp; remarketing sobre web + Instagram; Facebook solo de apoyo."
+    );
+  }
+
+  if (isPremium && brand?.positioning) {
+    notes.push(`Posicionamiento visual en Instagram: ${brand.positioning}`);
+  }
+
+  return notes;
 }
 
 function buildRecommendedCampaigns(
@@ -315,32 +410,56 @@ function buildRecommendedCampaigns(
   }
 
   if (objective.platforms === "META" || objective.platforms === "BOTH") {
+    const maldivas = isMaldivasBrand(
+      objective.industry,
+      objective.product,
+      objective.goal
+    );
+    const igPriority =
+      maldivas ||
+      objective.meta_channel_preference === "INSTAGRAM_PRIORITY" ||
+      objective.meta_channel_preference === "INSTAGRAM_ONLY";
+
     if (warmup) {
       campaigns.push({
-        name: "Meta - Calentamiento / Awareness",
+        name: igPriority
+          ? "Instagram - Calentamiento Reels/Stories"
+          : "Meta - Calentamiento / Awareness",
         platform: "META",
         funnelStage: "AWARENESS",
-        rationale:
-          "Generar reconocimiento de marca con contenido visual premium antes de conversión.",
+        rationale: igPriority
+          ? "Awareness visual premium en Instagram Reels y Stories — lifestyle outdoor, piletas y galerías."
+          : "Generar reconocimiento de marca con contenido visual premium antes de conversión.",
       });
     }
 
     campaigns.push({
-      name: whatsapp ? "Meta - Leads WhatsApp" : "Meta - Tráfico / Conversión",
+      name: whatsapp
+        ? igPriority
+          ? "Instagram - Leads WhatsApp Feed/Stories"
+          : "Meta - Leads WhatsApp"
+        : igPriority
+          ? "Instagram - Tráfico / Conversión"
+          : "Meta - Tráfico / Conversión",
       platform: "META",
       funnelStage: whatsapp ? "LEADS" : "TRAFFIC",
       rationale: whatsapp
-        ? "Generar consultas calificadas por WhatsApp con segmentación premium."
-        : "Dirigir tráfico calificado a landing con contenido visual.",
+        ? igPriority
+          ? "Consultas calificadas por WhatsApp desde Instagram Feed y Stories con mensajes premium."
+          : "Generar consultas calificadas por WhatsApp con segmentación premium."
+        : "Dirigir tráfico calificado a landing con contenido visual aspiracional.",
     });
 
     if (!warmup && allowRemarketing) {
       campaigns.push({
-        name: "Meta - Remarketing",
+        name: igPriority
+          ? "Instagram - Remarketing"
+          : "Meta - Remarketing",
         platform: "META",
         funnelStage: "REMARKETING",
-        rationale:
-          "Reimpactar visitantes del sitio. Solo activar con datos suficientes (mín. 1000 visitantes/mes).",
+        rationale: igPriority
+          ? "Remarketing en Instagram sobre interacciones, visitantes web y aperturas de WhatsApp."
+          : "Reimpactar visitantes del sitio. Solo activar con datos suficientes (mín. 1000 visitantes/mes).",
       });
     }
   }

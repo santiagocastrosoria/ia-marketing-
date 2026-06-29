@@ -440,6 +440,17 @@ function StrategyPlanView({
         <p className="mt-2 text-sm text-indigo-800 whitespace-pre-wrap">{strategy.diagnosis}</p>
       </div>
 
+      {strategy.instagramStrategyNotes && strategy.instagramStrategyNotes.length > 0 && (
+        <div className="rounded-xl border border-pink-200 bg-pink-50 p-5">
+          <h2 className="font-semibold text-pink-900">Estrategia Instagram / Meta</h2>
+          <ul className="mt-3 list-disc pl-5 space-y-2 text-sm text-pink-900">
+            {strategy.instagramStrategyNotes.map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <InfoCard title="Etapa del embudo" value={strategy.recommendedFunnelStage} />
         <InfoCard title="Calentamiento vs conversión" value={strategy.warmupVsConversion} />

@@ -33,7 +33,8 @@ export type ActionType =
   | "CHANGE_CONVERSION_GOAL"
   | "CHANGE_LANDING_URL"
   | "ADD_SPENDING_CAMPAIGN"
-  | "APPLY_RECOMMENDATION";
+  | "APPLY_RECOMMENDATION"
+  | "CHANGE_PLACEMENT_STRATEGY";
 
 export type RecommendationType =
   | "PAUSE_AD"
@@ -62,14 +63,26 @@ export type CreativeType =
 export type MetaChannelPreference =
   | "META_FULL"
   | "INSTAGRAM_PRIORITY"
-  | "FACEBOOK_PRIORITY"
-  | "INSTAGRAM_ONLY";
+  | "INSTAGRAM_ONLY"
+  | "FACEBOOK_COMPLEMENT";
 
 /** Estrategia de placements en Meta */
 export type PlacementStrategy =
   | "ADVANTAGE_PLUS"
   | "MANUAL_INSTAGRAM_FOCUS"
+  | "MANUAL_INSTAGRAM_ONLY"
   | "MANUAL_ALL_META";
+
+export type FacebookPosition = "feed" | "story" | "reels" | "marketplace";
+
+export type PrimaryChannel = "INSTAGRAM" | "FACEBOOK" | "GOOGLE" | "META" | "MIXED";
+
+export type PrimaryPlacement =
+  | "REELS"
+  | "STORIES"
+  | "FEED"
+  | "SEARCH"
+  | "MIXED";
 
 export type MetaPublisherPlatform =
   | "facebook"
@@ -194,10 +207,16 @@ export interface CampaignPlan {
   publisherPlatforms?: MetaPublisherPlatform[];
   /** Meta: instagram_positions para API */
   instagramPositions?: InstagramPosition[];
+  /** Meta: facebook_positions para API */
+  facebookPositions?: FacebookPosition[];
   /** Meta: estrategia de placement */
   placementStrategy?: PlacementStrategy;
   /** Preferencia de canal UI */
   metaChannelPreference?: MetaChannelPreference;
+  /** Canal principal de la campaña */
+  primaryChannel?: PrimaryChannel;
+  /** Placement principal */
+  primaryPlacement?: PrimaryPlacement;
   adGroups: AdGroup[];
   ads: Ad[];
   keywords: Keyword[];
@@ -234,6 +253,8 @@ export interface StrategyPlan {
     day14: string[];
     day30: string[];
   };
+  /** Narrativa Instagram / Meta (Maldivas y premium) */
+  instagramStrategyNotes?: string[];
   created_at: string;
 }
 
@@ -363,5 +384,6 @@ export interface MetricsAnalysis {
     instagramVsFacebook?: string;
     reelsVsStoriesVsFeed?: string;
     topPlacement?: string;
+    channelInsights?: string[];
   };
 }
