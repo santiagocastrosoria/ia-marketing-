@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { apiErrorResponse } from "@/lib/api/apiError";
+import {
+  classifyLegacyCampaign,
+  getLatestObjectiveId,
+  getApprovedActivationCampaignIds,
+} from "@/lib/campaigns/legacyCampaigns";
 import { getAuthContext, unauthorizedResponse } from "@/lib/api/withAuth";
 
 export async function GET() {
@@ -8,8 +13,26 @@ export async function GET() {
     const stats = await repo.getDashboardStats();
     const campaigns = await repo.getCampaignPlans();
     const objectives = await repo.getObjectives();
+    const approvals = await repo.getApprovalRequests();
 
-    return NextResponse.json({ stats, campaigns, objectives });
+    const latestObjectiveId = getLatestObjectiveId(objectives);
+    const approvedActivationIds = getApprovedActivationCampaignIds(approvals);
+
+    const campaignsWithMeta = campaigns.map((c) => {
+      const { isLegacy, reason } = classifyLegacyCampaign(
+        c,
+        latestObjectiveId,
+        approvedActivationIds
+      );
+      return { ...c, isLegacy, legacyReason: isLegacy ? reason : undefined };
+    });
+
+    return NextResponse.json({
+      stats,
+      campaigns: campaignsWithMeta,
+      objectives,
+      latestObjectiveId,
+    });
   } catch (error) {
     const unauth = unauthorizedResponse(error);
     if (unauth) return unauth;

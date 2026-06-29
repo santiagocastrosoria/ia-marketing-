@@ -1,4 +1,4 @@
-import type { CampaignMetrics, CampaignPlan } from "@/lib/types/marketing";
+import type { CampaignMetrics, CampaignPlan, AggregatedPlacementRow } from "@/lib/types/marketing";
 import {
   canUseMetaInsights,
   isMockMode,
@@ -356,4 +356,160 @@ export function extractPlacementBreakdown(
 
   if (rows.length === 0) return null;
   return aggregatePlacementRows(rows, "stored", isMockMode());
+}
+
+const AGGREGATED_PLACEMENT_ORDER = [
+  "Instagram:Reels",
+  "Instagram:Stories",
+  "Instagram:Feed",
+  "Facebook:Feed",
+  "Google:Search",
+];
+
+function placementSortKey(channel: string, placement: string): string {
+  return `${channel}:${placement}`;
+}
+
+function aggregatedRecommendation(
+  channel: string,
+  placement: string,
+  leads: number,
+  spend: number,
+  cpl: number,
+  impressions: number
+): string {
+  if (leads === 0 && spend > 15000) {
+    return "Pausar o reducir — consume presupuesto sin generar leads";
+  }
+  if (channel === "Instagram" && placement === "Reels") {
+    return leads > 2
+      ? "Mejor alcance — evaluar aumento de presupuesto (requiere aprobación)"
+      : "Mantener para awareness visual premium";
+  }
+  if (channel === "Instagram" && placement === "Stories") {
+    return "Mejor CTR — útil para engagement y consultas rápidas";
+  }
+  if (channel === "Instagram" && placement === "Feed") {
+    return leads > 2
+      ? "Mejor conversión a WhatsApp — escalar con aprobación"
+      : "Priorizar para leads WhatsApp";
+  }
+  if (channel === "Facebook") {
+    return "Rol de apoyo — mantener presupuesto complementario bajo";
+  }
+  if (channel === "Google") {
+    return "Menor volumen, mayor intención — mantener para búsquedas premium";
+  }
+  if (cpl > 0 && cpl < 8000 && leads >= 3) {
+    return "Rendimiento sólido — evaluar aumento de presupuesto (requiere aprobación)";
+  }
+  if (impressions > 5000 && leads === 0) {
+    return "Reducir gasto en este placement";
+  }
+  return "Monitorear 7 días más";
+}
+
+/** Combina breakdowns de varias campañas en una tabla por canal/placement */
+export function aggregatePlacementRowsAcrossCampaigns(
+  items: Array<{ campaign: CampaignPlan; breakdown: MetaInsightsResult }>
+): AggregatedPlacementRow[] {
+  const map = new Map<
+    string,
+    AggregatedPlacementRow & { publisher_platform: string; platform_position: string }
+  >();
+
+  for (const { campaign, breakdown } of items) {
+    for (const row of breakdown.rows) {
+      const key = placementSortKey(row.channel, row.placement);
+      if (!map.has(key)) {
+        map.set(key, {
+          channel: row.channel,
+          placement: row.placement,
+          campaignIds: [],
+          campaignNames: [],
+          spend: 0,
+          impressions: 0,
+          clicks: 0,
+          leads: 0,
+          ctr: 0,
+          cpc: 0,
+          cpm: 0,
+          cpl: 0,
+          conversions: 0,
+          publisher_platform: row.publisher_platform,
+          platform_position: row.platform_position,
+        });
+      }
+      const agg = map.get(key)!;
+      if (!agg.campaignIds.includes(campaign.id)) {
+        agg.campaignIds.push(campaign.id);
+        agg.campaignNames.push(campaign.campaignName);
+      }
+      agg.spend += row.spend;
+      agg.impressions += row.impressions;
+      agg.clicks += row.clicks;
+      agg.leads += row.leads;
+      agg.conversions += Math.floor(row.leads * 0.3);
+    }
+  }
+
+  const rows: AggregatedPlacementRow[] = [];
+  for (const agg of map.values()) {
+    agg.ctr =
+      agg.impressions > 0
+        ? Math.round((agg.clicks / agg.impressions) * 10000) / 100
+        : 0;
+    agg.cpc =
+      agg.clicks > 0 ? Math.round((agg.spend / agg.clicks) * 100) / 100 : 0;
+    agg.cpm =
+      agg.impressions > 0
+        ? Math.round((agg.spend / agg.impressions) * 1000 * 100) / 100
+        : 0;
+    agg.cpl =
+      agg.leads > 0 ? Math.round((agg.spend / agg.leads) * 100) / 100 : 0;
+    agg.recommendation = aggregatedRecommendation(
+      agg.channel,
+      agg.placement,
+      agg.leads,
+      agg.spend,
+      agg.cpl,
+      agg.impressions
+    );
+    const { publisher_platform: _p, platform_position: _pp, ...rest } = agg;
+    rows.push(rest);
+  }
+
+  return rows.sort((a, b) => {
+    const ia = AGGREGATED_PLACEMENT_ORDER.indexOf(
+      placementSortKey(a.channel, a.placement)
+    );
+    const ib = AGGREGATED_PLACEMENT_ORDER.indexOf(
+      placementSortKey(b.channel, b.placement)
+    );
+    const ai = ia === -1 ? 999 : ia;
+    const bi = ib === -1 ? 999 : ib;
+    return ai - bi;
+  });
+}
+
+export async function fetchAggregatedPlacementInsights(
+  campaigns: CampaignPlan[]
+): Promise<{
+  simulated: boolean;
+  source: MetaInsightsResult["source"];
+  rows: AggregatedPlacementRow[];
+  breakdowns: MetaInsightsResult[];
+}> {
+  const breakdowns: MetaInsightsResult[] = [];
+  for (const campaign of campaigns) {
+    breakdowns.push(await fetchMetaPlacementInsights(campaign));
+  }
+  const items = campaigns.map((campaign, i) => ({
+    campaign,
+    breakdown: breakdowns[i],
+  }));
+  const rows = aggregatePlacementRowsAcrossCampaigns(items);
+  const simulated = breakdowns.every((b) => b.simulated) || isMockMode();
+  const source = simulated ? "mock" : "meta_api";
+  return { simulated, source, rows, breakdowns };
 }

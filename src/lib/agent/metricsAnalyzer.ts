@@ -3,6 +3,7 @@ import type {
   CampaignPlan,
   MetricsAnalysis,
   Recommendation,
+  AggregatedPlacementRow,
 } from "@/lib/types/marketing";
 import { formatARS } from "@/lib/utils/formatARS";
 import {
@@ -274,6 +275,7 @@ export function analyzePlacementRecommendations(
 
   for (const row of breakdown.rows) {
     if (row.leads === 0 && row.spend > 12000) {
+      const isActiveCampaign = campaign.status === "ACTIVE";
       recs.push({
         type: "PAUSE_AD",
         title: `Pausar ${row.channel} ${row.placement}`,
@@ -285,8 +287,8 @@ export function analyzePlacementRecommendations(
           spend: row.spend,
         },
         expected_impact: "MEDIUM",
-        risk_level: "LOW",
-        requires_approval: false,
+        risk_level: isActiveCampaign ? "MEDIUM" : "LOW",
+        requires_approval: isActiveCampaign,
       });
     }
 
@@ -334,6 +336,148 @@ export function analyzePlacementRecommendations(
   }
 
   return recs;
+}
+
+export type MetricsAnalyzeScope = "campaign" | "objective" | "all";
+
+export function analyzeAggregatedMetrics(
+  campaigns: CampaignPlan[],
+  allMetrics: CampaignMetrics[],
+  aggregatedRows: AggregatedPlacementRow[],
+  simulated: boolean
+): MetricsAnalysis {
+  const insights: MetricsAnalysis["insights"] = [];
+  const recommendations: MetricsAnalysis["recommendations"] = [];
+
+  const totals = aggregateMetrics(allMetrics);
+  const summary = `Análisis agregado de ${campaigns.length} campaña(s): gasto ${formatARS(totals.spend)}, ${totals.leads} leads, CPL ${formatARS(totals.cpl)}.${simulated ? " (métricas simuladas)" : ""}`;
+
+  const reels = aggregatedRows.find(
+    (r) => r.channel === "Instagram" && r.placement === "Reels"
+  );
+  const stories = aggregatedRows.find(
+    (r) => r.channel === "Instagram" && r.placement === "Stories"
+  );
+  const feed = aggregatedRows.find(
+    (r) => r.channel === "Instagram" && r.placement === "Feed"
+  );
+  const fb = aggregatedRows.find((r) => r.channel === "Facebook");
+  const google = aggregatedRows.find((r) => r.channel === "Google");
+
+  const channelInsights: string[] = [];
+  if (reels) {
+    channelInsights.push(
+      `Instagram Reels tiene mejor alcance (${reels.impressions.toLocaleString("es-AR")} impresiones agregadas).`
+    );
+  }
+  if (stories) {
+    channelInsights.push(
+      `Instagram Stories tiene mejor CTR (${stories.ctr.toFixed(2)}% agregado).`
+    );
+  }
+  if (feed) {
+    channelInsights.push(
+      `Instagram Feed convierte mejor a WhatsApp (${feed.leads} leads, CPL ${formatARS(feed.cpl)}).`
+    );
+  }
+  if (fb) {
+    channelInsights.push(
+      "Facebook Feed funciona como apoyo — mantener presupuesto complementario bajo."
+    );
+  }
+  if (google) {
+    channelInsights.push(
+      `Google Search tiene menor volumen (${google.clicks} clics) pero mayor intención (CTR ${google.ctr.toFixed(2)}%).`
+    );
+  }
+
+  for (const insight of channelInsights) {
+    insights.push({ metric: "Canal agregado", diagnosis: insight, severity: "LOW" });
+  }
+
+  for (const row of aggregatedRows) {
+    if (row.leads === 0 && row.spend > 12000) {
+      const hasActive = campaigns.some(
+        (c) => row.campaignIds.includes(c.id) && c.status === "ACTIVE"
+      );
+      recommendations.push({
+        type: "PAUSE_AD",
+        title: `Pausar o reducir ${row.channel} ${row.placement}`,
+        description: row.recommendation ?? "Placement sin leads con gasto significativo.",
+        reason: `Gasto agregado ${formatARS(row.spend)} en ${row.campaignNames.length} campaña(s).`,
+        supporting_metrics_json: {
+          channel: row.channel,
+          placement: row.placement,
+          spend: row.spend,
+          campaignIds: row.campaignIds,
+        },
+        expected_impact: "MEDIUM",
+        risk_level: hasActive ? "MEDIUM" : "LOW",
+        requires_approval: hasActive,
+      });
+    }
+
+    if (
+      row.recommendation?.includes("aumento") ||
+      row.recommendation?.includes("escalar")
+    ) {
+      recommendations.push({
+        type: "CHANGE_BUDGET",
+        title: `Aumentar presupuesto en ${row.channel} ${row.placement}`,
+        description: row.recommendation,
+        reason: `${row.leads} leads agregados, CPL ${formatARS(row.cpl)}.`,
+        supporting_metrics_json: {
+          channel: row.channel,
+          placement: row.placement,
+          leads: row.leads,
+          cpl: row.cpl,
+          campaignIds: row.campaignIds,
+        },
+        expected_impact: "HIGH",
+        risk_level: "MEDIUM",
+        requires_approval: true,
+      });
+    }
+  }
+
+  const hasPausedInstagram = campaigns.some(
+    (c) =>
+      c.platform === "META" &&
+      c.primaryChannel === "INSTAGRAM" &&
+      (c.status === "PAUSED" || c.status === "DRAFT")
+  );
+  if (hasPausedInstagram) {
+    recommendations.push({
+      type: "CREATE_WARMUP",
+      title: "Activar campaña(s) Instagram pausadas",
+      description:
+        "La estrategia prioriza Instagram. Activar solo tras revisar creatividades.",
+      reason: `${campaigns.filter((c) => c.primaryChannel === "INSTAGRAM" && c.status === "PAUSED").length} campaña(s) Instagram en PAUSED.`,
+      supporting_metrics_json: { scope: "aggregated", campaignCount: campaigns.length },
+      expected_impact: "HIGH",
+      risk_level: "MEDIUM",
+      requires_approval: true,
+    });
+  }
+
+  const placementInsights: MetricsAnalysis["placementInsights"] = {
+    simulated,
+    aggregated: true,
+    campaignCount: campaigns.length,
+    channelInsights,
+    reelsVsStoriesVsFeed: [reels, stories, feed]
+      .filter(Boolean)
+      .map((r) => `${r!.channel} ${r!.placement}: CTR ${r!.ctr.toFixed(2)}%`)
+      .join(" · "),
+  };
+
+  return {
+    summary,
+    insights,
+    recommendations,
+    placementInsights,
+    aggregatedPlacementRows: aggregatedRows,
+  };
 }
 
 function aggregateMetrics(metrics: CampaignMetrics[]) {

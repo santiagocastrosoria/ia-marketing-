@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
 import { StatusBadge, RiskBadge } from "@/components/ui/Badges";
-import type { CampaignPlan } from "@/lib/types/marketing";
+import type { CampaignPlan, MarketingObjective } from "@/lib/types/marketing";
 import { formatARSDaily, formatARSMonthly } from "@/lib/utils/formatARS";
 import { fetchJson, FetchApiError } from "@/lib/api/fetchClient";
 import { MetaPlacementPanel } from "@/components/campaigns/MetaPlacementPanel";
@@ -13,17 +13,32 @@ import {
   primaryPlacementLabel,
   placementStrategyLabel,
 } from "@/lib/ads/metaPlacements";
-import { Loader2, Pause, ShieldCheck, Play } from "lucide-react";
+import { Loader2, Pause, ShieldCheck, Play, Archive } from "lucide-react";
+
+type CampaignWithLegacy = CampaignPlan & {
+  isLegacy?: boolean;
+  legacyReason?: string;
+};
 
 export default function CampaignsPage() {
-  const [campaigns, setCampaigns] = useState<CampaignPlan[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignWithLegacy[]>([]);
+  const [objectives, setObjectives] = useState<MarketingObjective[]>([]);
+  const [latestObjectiveId, setLatestObjectiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [objectiveFilter, setObjectiveFilter] = useState<string>("current");
 
   const load = () => {
-    fetchJson<{ campaigns?: CampaignPlan[] }>("/api/dashboard")
+    fetchJson<{
+      campaigns?: CampaignWithLegacy[];
+      objectives?: MarketingObjective[];
+      latestObjectiveId?: string;
+    }>("/api/dashboard")
       .then((data) => {
         setCampaigns(data.campaigns ?? []);
+        setObjectives(data.objectives ?? []);
+        setLatestObjectiveId(data.latestObjectiveId ?? null);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -32,6 +47,19 @@ export default function CampaignsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const filteredCampaigns = useMemo(() => {
+    return campaigns.filter((c) => {
+      if (statusFilter !== "all" && c.status !== statusFilter) return false;
+      if (objectiveFilter === "current" && latestObjectiveId) {
+        return c.objective_id === latestObjectiveId;
+      }
+      if (objectiveFilter !== "all" && objectiveFilter !== "current") {
+        return c.objective_id === objectiveFilter;
+      }
+      return true;
+    });
+  }, [campaigns, statusFilter, objectiveFilter, latestObjectiveId]);
 
   const createPaused = async (id: string) => {
     setActionLoading(id);
@@ -91,6 +119,42 @@ export default function CampaignsPage() {
     load();
   };
 
+  const runLegacyCleanup = async (apply: boolean) => {
+    setActionLoading("cleanup");
+    try {
+      const data = await fetchJson<{
+        message?: string;
+        wouldPause?: { campaignName: string }[];
+        paused?: { campaignName: string }[];
+      }>("/api/dev/cleanup-legacy-campaigns", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dryRun: !apply, targetStatus: "PAUSED" }),
+      });
+      if (!apply) {
+        const list = (data.wouldPause ?? [])
+          .map((c) => `• ${c.campaignName}`)
+          .join("\n");
+        alert(
+          `Dry run — campañas ACTIVE legacy a pausar:\n${list || "(ninguna)"}\n\n${data.message ?? ""}`
+        );
+      } else {
+        alert(data.message ?? "Cleanup aplicado");
+        load();
+      }
+    } catch (err) {
+      alert(
+        err instanceof FetchApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Error"
+      );
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   if (loading) {
     return (
       <AppShell>
@@ -104,27 +168,86 @@ export default function CampaignsPage() {
   return (
     <AppShell>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Constructor de campañas</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Campañas propuestas en estado DRAFT/PAUSED. Ninguna puede activarse sin aprobación.
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900">Constructor de campañas</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Campañas propuestas en estado DRAFT/PAUSED. Ninguna puede activarse sin aprobación.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={actionLoading === "cleanup"}
+              onClick={() => runLegacyCleanup(false)}
+            >
+              <Archive className="h-3 w-3" />
+              Preview cleanup legacy
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={actionLoading === "cleanup"}
+              onClick={() => {
+                if (
+                  confirm(
+                    "¿Pausar campañas ACTIVE legacy? No se eliminan datos."
+                  )
+                ) {
+                  runLegacyCleanup(true);
+                }
+              }}
+            >
+              Pausar legacy ACTIVE
+            </Button>
+          </div>
         </div>
 
-        {campaigns.length === 0 ? (
+        <div className="flex flex-wrap gap-3">
+          <select
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            value={objectiveFilter}
+            onChange={(e) => setObjectiveFilter(e.target.value)}
+          >
+            <option value="current">Objetivo actual</option>
+            <option value="all">Todos los objetivos</option>
+            {objectives.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.goal.slice(0, 40)}…
+              </option>
+            ))}
+          </select>
+          <select
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            <option value="all">Todos los estados</option>
+            <option value="DRAFT">DRAFT</option>
+            <option value="PAUSED">PAUSED</option>
+            <option value="APPROVED">APPROVED</option>
+            <option value="ACTIVE">ACTIVE</option>
+            <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
+          </select>
+        </div>
+
+        {filteredCampaigns.length === 0 ? (
           <div className="rounded-xl border border-dashed border-slate-300 bg-white p-12 text-center">
-            <p className="text-slate-500">No hay campañas. Generá una estrategia primero.</p>
+            <p className="text-slate-500">No hay campañas con estos filtros.</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {campaigns.map((c) => (
+            {filteredCampaigns.map((c) => (
               <div
                 key={c.id}
-                className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
+                className={`rounded-xl border bg-white p-6 shadow-sm ${
+                  c.isLegacy ? "border-amber-200" : "border-slate-200"
+                }`}
               >
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-bold">
                         {c.platform}
                       </span>
@@ -133,7 +256,18 @@ export default function CampaignsPage() {
                       </h3>
                       <StatusBadge status={c.status} />
                       <RiskBadge level={c.riskLevel} />
+                      {c.isLegacy && (
+                        <span
+                          className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800"
+                          title={c.legacyReason}
+                        >
+                          Legacy
+                        </span>
+                      )}
                     </div>
+                    {c.isLegacy && c.legacyReason && (
+                      <p className="mt-1 text-xs text-amber-700">{c.legacyReason}</p>
+                    )}
                     <p className="mt-2 text-sm text-slate-600">{c.strategy_summary}</p>
                     <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
                       <span>Objetivo: {c.objective}</span>

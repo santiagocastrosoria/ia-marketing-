@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiErrorResponse } from "@/lib/api/apiError";
+import { getLatestObjectiveId } from "@/lib/campaigns/legacyCampaigns";
 import { getAuthContext, unauthorizedResponse } from "@/lib/api/withAuth";
 
 export async function GET(request: Request) {
@@ -19,8 +20,15 @@ export async function GET(request: Request) {
     }
 
     const campaigns = await repo.getCampaignPlans();
+    const objectives = await repo.getObjectives();
+    const latestObjectiveId = getLatestObjectiveId(objectives);
 
-    return NextResponse.json({ metrics, campaigns });
+    return NextResponse.json({
+      metrics,
+      campaigns,
+      objectives,
+      latestObjectiveId,
+    });
   } catch (error) {
     const unauth = unauthorizedResponse(error);
     if (unauth) return unauth;

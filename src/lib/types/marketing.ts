@@ -385,5 +385,25 @@ export interface MetricsAnalysis {
     reelsVsStoriesVsFeed?: string;
     topPlacement?: string;
     channelInsights?: string[];
+    aggregated?: boolean;
+    campaignCount?: number;
   };
+  aggregatedPlacementRows?: AggregatedPlacementRow[];
+}
+
+export interface AggregatedPlacementRow {
+  channel: string;
+  placement: string;
+  campaignIds: string[];
+  campaignNames: string[];
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  cpc: number;
+  cpm: number;
+  leads: number;
+  cpl: number;
+  conversions: number;
+  recommendation?: string;
 }

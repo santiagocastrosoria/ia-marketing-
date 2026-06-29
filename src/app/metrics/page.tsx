@@ -4,23 +4,35 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
 import { RiskBadge } from "@/components/ui/Badges";
-import type { CampaignMetrics, CampaignPlan, Recommendation, InstagramPosition } from "@/lib/types/marketing";
+import type {
+  CampaignMetrics,
+  CampaignPlan,
+  Recommendation,
+  InstagramPosition,
+  AggregatedPlacementRow,
+  MarketingObjective,
+} from "@/lib/types/marketing";
 import type { MetaInsightsResult } from "@/lib/ads/metaInsightsService";
 import { instagramPositionLabel } from "@/lib/ads/metaPlacements";
 import { Loader2, BarChart3, Sparkles, AlertTriangle, Camera } from "lucide-react";
 import { formatARS } from "@/lib/utils/formatARS";
 import { fetchJson, FetchApiError } from "@/lib/api/fetchClient";
 
+type AnalysisScope = "campaign" | "objective" | "all";
+
 type AnalysisResult = {
   summary: string;
   insights: { metric: string; diagnosis: string; severity: string }[];
   placementInsights?: {
     simulated?: boolean;
+    aggregated?: boolean;
+    campaignCount?: number;
     instagramVsFacebook?: string;
     reelsVsStoriesVsFeed?: string;
     topPlacement?: string;
     channelInsights?: string[];
   };
+  aggregatedPlacementRows?: AggregatedPlacementRow[];
 };
 
 const adsMode =
@@ -28,26 +40,40 @@ const adsMode =
 
 export default function MetricsPage() {
   const [campaigns, setCampaigns] = useState<CampaignPlan[]>([]);
+  const [objectives, setObjectives] = useState<MarketingObjective[]>([]);
+  const [latestObjectiveId, setLatestObjectiveId] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<CampaignMetrics[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [placementBreakdown, setPlacementBreakdown] =
     useState<MetaInsightsResult | null>(null);
+  const [aggregatedRows, setAggregatedRows] = useState<AggregatedPlacementRow[]>([]);
+  const [analyzeScope, setAnalyzeScope] = useState<AnalysisScope>("objective");
   const [period, setPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<string>("");
+  const [selectedObjective, setSelectedObjective] = useState<string>("");
 
   const load = () => {
     const params = new URLSearchParams({ period });
-    if (selectedCampaign) params.set("campaignPlanId", selectedCampaign);
+    if (analyzeScope === "campaign" && selectedCampaign) {
+      params.set("campaignPlanId", selectedCampaign);
+    }
     fetchJson<{
       metrics?: CampaignMetrics[];
       campaigns?: CampaignPlan[];
+      objectives?: MarketingObjective[];
+      latestObjectiveId?: string;
     }>(`/api/metrics?${params}`)
       .then((data) => {
         setMetrics(data.metrics ?? []);
         setCampaigns(data.campaigns ?? []);
+        setObjectives(data.objectives ?? []);
+        if (data.latestObjectiveId) {
+          setLatestObjectiveId(data.latestObjectiveId);
+          if (!selectedObjective) setSelectedObjective(data.latestObjectiveId);
+        }
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -55,25 +81,40 @@ export default function MetricsPage() {
 
   useEffect(() => {
     load();
-  }, [period, selectedCampaign]);
+  }, [period, selectedCampaign, analyzeScope]);
 
   const analyze = async () => {
     setAnalyzing(true);
     try {
+      const scope = analyzeScope;
+      const body: Record<string, unknown> = {
+        scope,
+        generateMock: true,
+      };
+      if (scope === "campaign") {
+        body.campaignPlanId = selectedCampaign || campaigns[0]?.id;
+      } else if (scope === "objective") {
+        body.objectiveId = selectedObjective || latestObjectiveId;
+      }
+
       const data = await fetchJson<{
         analysis: AnalysisResult;
         recommendations?: Recommendation[];
         placementBreakdown?: MetaInsightsResult | null;
+        aggregatedPlacementRows?: AggregatedPlacementRow[];
+        scope?: AnalysisScope;
       }>("/api/metrics/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          campaignPlanId: selectedCampaign || campaigns[0]?.id,
-          generateMock: true,
-        }),
+        body: JSON.stringify(body),
       });
       setAnalysis(data.analysis);
       setPlacementBreakdown(data.placementBreakdown ?? null);
+      setAggregatedRows(
+        data.aggregatedPlacementRows ??
+          data.analysis.aggregatedPlacementRows ??
+          []
+      );
       setRecommendations(data.recommendations ?? []);
       load();
     } catch (err) {
@@ -158,7 +199,16 @@ export default function MetricsPage() {
               Rendimiento por canal Meta — Instagram vs Facebook y placements
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+            <select
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={analyzeScope}
+              onChange={(e) => setAnalyzeScope(e.target.value as AnalysisScope)}
+            >
+              <option value="campaign">Campaña individual</option>
+              <option value="objective">Todas del objetivo actual</option>
+              <option value="all">Todas mis campañas</option>
+            </select>
             <select
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               value={period}
@@ -169,18 +219,33 @@ export default function MetricsPage() {
               <option value="14">14 días</option>
               <option value="30">30 días</option>
             </select>
-            <select
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={selectedCampaign}
-              onChange={(e) => setSelectedCampaign(e.target.value)}
-            >
-              <option value="">Todas las campañas</option>
-              {campaigns.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.campaignName}
-                </option>
-              ))}
-            </select>
+            {analyzeScope === "campaign" && (
+              <select
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm max-w-xs"
+                value={selectedCampaign}
+                onChange={(e) => setSelectedCampaign(e.target.value)}
+              >
+                <option value="">Seleccionar campaña</option>
+                {campaigns.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.campaignName}
+                  </option>
+                ))}
+              </select>
+            )}
+            {analyzeScope === "objective" && (
+              <select
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm max-w-xs"
+                value={selectedObjective || latestObjectiveId || ""}
+                onChange={(e) => setSelectedObjective(e.target.value)}
+              >
+                {objectives.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.goal.slice(0, 50)}
+                  </option>
+                ))}
+              </select>
+            )}
             <Button onClick={analyze} disabled={analyzing}>
               {analyzing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -273,7 +338,13 @@ export default function MetricsPage() {
           </div>
         )}
 
-        {placementBreakdown && placementBreakdown.rows.length > 0 && (
+        {aggregatedRows.length > 0 && (
+          <AggregatedPlacementTable rows={aggregatedRows} />
+        )}
+
+        {placementBreakdown &&
+          placementBreakdown.rows.length > 0 &&
+          aggregatedRows.length === 0 && (
           <PlacementBreakdownSection breakdown={placementBreakdown} />
         )}
 
@@ -349,6 +420,66 @@ export default function MetricsPage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+function AggregatedPlacementTable({ rows }: { rows: AggregatedPlacementRow[] }) {
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
+      <p className="px-4 py-3 text-sm font-semibold text-indigo-900 bg-indigo-50 border-b border-indigo-100 flex items-center gap-2">
+        <Camera className="h-4 w-4" />
+        Desglose agregado por canal y placement
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[900px]">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium text-slate-500">Canal</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-500">Placement</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-500">Campañas</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Gasto ARS</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Impr.</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Clics</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">CTR</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">CPC</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">CPM</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Leads</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">CPL</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Conv.</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-500">Recomendación</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row) => (
+              <tr
+                key={`${row.channel}-${row.placement}`}
+                className="hover:bg-indigo-50/30"
+              >
+                <td className="px-3 py-2 font-medium">{row.channel}</td>
+                <td className="px-3 py-2">{row.placement}</td>
+                <td className="px-3 py-2 text-xs text-slate-600 max-w-[140px]">
+                  {row.campaignNames.join(", ")}
+                </td>
+                <td className="px-3 py-2 text-right">{formatARS(row.spend)}</td>
+                <td className="px-3 py-2 text-right">
+                  {row.impressions.toLocaleString("es-AR")}
+                </td>
+                <td className="px-3 py-2 text-right">{row.clicks}</td>
+                <td className="px-3 py-2 text-right">{row.ctr.toFixed(2)}%</td>
+                <td className="px-3 py-2 text-right">{formatARS(row.cpc)}</td>
+                <td className="px-3 py-2 text-right">{formatARS(row.cpm)}</td>
+                <td className="px-3 py-2 text-right">{row.leads}</td>
+                <td className="px-3 py-2 text-right">{formatARS(row.cpl)}</td>
+                <td className="px-3 py-2 text-right">{row.conversions}</td>
+                <td className="px-3 py-2 text-xs text-slate-600 max-w-[200px]">
+                  {row.recommendation ?? "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

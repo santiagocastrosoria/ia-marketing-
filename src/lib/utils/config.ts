@@ -47,6 +47,11 @@ export function isDemoUserEnabled(): boolean {
   return process.env.ENABLE_DEMO_USER === "true" && !isProduction();
 }
 
+/** Herramientas de desarrollo (cleanup legacy, etc.) */
+export function isDevToolsEnabled(): boolean {
+  return !isProduction() || process.env.ALLOW_DEV_TOOLS === "true";
+}
+
 /** @deprecated Usar getUserId() en rutas API o getDemoUserId() desde @/lib/auth/getUserId */
 export function getDemoUserId(): string {
   return process.env.DEMO_USER_ID ?? DEMO_USER_ID;
