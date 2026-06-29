@@ -10,6 +10,7 @@ const PROTECTED_PAGE_PREFIXES = [
   "/campaigns",
   "/approvals",
   "/metrics",
+  "/settings",
 ];
 
 const PUBLIC_API_PREFIXES = ["/api/auth/"];

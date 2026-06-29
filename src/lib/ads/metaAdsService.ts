@@ -1,6 +1,7 @@
 import { checkApprovalGate, ApprovalGateError } from "@/lib/approvals/approvalGate";
+import { assertReadOnlyModeAllows } from "@/lib/ads/adsModeGuard";
 import { toMetaApiTargeting } from "@/lib/ads/metaPlacements";
-import { isMockMode, canUseMetaInsights } from "@/lib/utils/config";
+import { isMockMode } from "@/lib/utils/config";
 import type { CampaignPlan, ProposedAction } from "@/lib/types/marketing";
 import { v4 as uuidv4 } from "uuid";
 
@@ -15,6 +16,8 @@ export async function createMetaCampaignPaused(
   plan: CampaignPlan,
   userId: string
 ): Promise<MetaCampaignResult> {
+  assertReadOnlyModeAllows("CREATE_CAMPAIGN");
+
   const action: ProposedAction = {
     type: "CREATE_ACTIVE_CAMPAIGN",
     entityType: "campaign_plan",
@@ -49,33 +52,11 @@ export async function createMetaCampaignPaused(
     };
   }
 
-  const accessToken = process.env.META_ACCESS_TOKEN;
-  const adAccountId = process.env.META_AD_ACCOUNT_ID;
-
-  if (!accessToken || !adAccountId) {
-    return {
-      platformCampaignId: `meta_mock_${uuidv4().slice(0, 8)}`,
-      status: "PAUSED",
-      mock: true,
-      targeting,
-    };
-  }
-
-  // Future: Meta Marketing API
-  // POST /{ad_account_id}/campaigns status=PAUSED
-  // Ad set targeting: publisher_platforms, instagram_positions, advantage_placement
-  console.log("[metaAds] create paused targeting", {
-    campaignId: plan.id,
-    placementStrategy: plan.placementStrategy,
-    metaChannelPreference: plan.metaChannelPreference,
-    targeting,
-    readOnly: canUseMetaInsights(),
-  });
-
+  // draft_only / live_approval: escritura real no implementada aún
   return {
-    platformCampaignId: `meta_live_${uuidv4().slice(0, 8)}`,
+    platformCampaignId: `meta_mock_${uuidv4().slice(0, 8)}`,
     status: "PAUSED",
-    mock: false,
+    mock: true,
     targeting,
   };
 }
@@ -85,6 +66,8 @@ export async function activateMetaCampaign(
   userId: string,
   approvalRequestId: string
 ): Promise<MetaCampaignResult> {
+  assertReadOnlyModeAllows("ACTIVATE_CAMPAIGN");
+
   const action: ProposedAction = {
     type: "ACTIVATE_CAMPAIGN",
     entityType: "campaign_plan",
@@ -121,5 +104,6 @@ export async function activateMetaCampaign(
 export async function pauseMetaCampaign(
   platformCampaignId: string
 ): Promise<void> {
+  assertReadOnlyModeAllows("PAUSE_CAMPAIGN");
   if (isMockMode()) return;
 }

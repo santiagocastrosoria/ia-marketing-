@@ -13,7 +13,12 @@ import {
   primaryPlacementLabel,
   placementStrategyLabel,
 } from "@/lib/ads/metaPlacements";
-import { Loader2, Pause, ShieldCheck, Play, Archive } from "lucide-react";
+import { Loader2, Pause, ShieldCheck, Play, Archive, Eye } from "lucide-react";
+import type { MetaRealCampaign } from "@/lib/ads/metaRealService";
+
+const adsMode =
+  process.env.NEXT_PUBLIC_ADS_MODE ?? process.env.ADS_MODE ?? "mock";
+const isReadOnlyAds = adsMode === "read_only";
 
 type CampaignWithLegacy = CampaignPlan & {
   isLegacy?: boolean;
@@ -28,6 +33,9 @@ export default function CampaignsPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [objectiveFilter, setObjectiveFilter] = useState<string>("current");
+  const [metaRealCampaigns, setMetaRealCampaigns] = useState<MetaRealCampaign[]>([]);
+  const [metaCampaignsLoading, setMetaCampaignsLoading] = useState(false);
+  const [metaCampaignsError, setMetaCampaignsError] = useState<string | null>(null);
 
   const load = () => {
     fetchJson<{
@@ -46,6 +54,23 @@ export default function CampaignsPage() {
 
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    if (!isReadOnlyAds) return;
+    setMetaCampaignsLoading(true);
+    fetchJson<{ campaigns?: MetaRealCampaign[] }>("/api/integrations/meta/campaigns")
+      .then((data) => {
+        setMetaRealCampaigns(data.campaigns ?? []);
+        setMetaCampaignsError(null);
+      })
+      .catch((err) => {
+        setMetaRealCampaigns([]);
+        setMetaCampaignsError(
+          err instanceof FetchApiError ? err.message : "No se pudieron cargar campañas Meta"
+        );
+      })
+      .finally(() => setMetaCampaignsLoading(false));
   }, []);
 
   const filteredCampaigns = useMemo(() => {
@@ -204,6 +229,71 @@ export default function CampaignsPage() {
           </div>
         </div>
 
+        {isReadOnlyAds && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            <p className="font-semibold flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              Modo solo lectura — campañas Meta importadas sin permisos de escritura
+            </p>
+            <p className="mt-1 text-emerald-800">
+              No podés activar, pausar, editar ni aprobar campañas reales desde esta app.
+            </p>
+          </div>
+        )}
+
+        {isReadOnlyAds && (
+          <section className="rounded-xl border border-indigo-200 bg-white shadow-sm overflow-hidden">
+            <div className="flex items-center justify-between border-b border-indigo-100 bg-indigo-50 px-4 py-3">
+              <h2 className="text-sm font-semibold text-indigo-900">
+                Campañas Meta / Instagram (importadas)
+              </h2>
+              <span className="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                Read only
+              </span>
+            </div>
+            {metaCampaignsLoading ? (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+              </div>
+            ) : metaCampaignsError ? (
+              <p className="px-4 py-6 text-sm text-slate-500">{metaCampaignsError}</p>
+            ) : metaRealCampaigns.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-slate-500">
+                No hay campañas en la cuenta Meta configurada, o faltan credenciales.
+              </p>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {metaRealCampaigns.map((c) => (
+                  <div key={c.id} className="px-4 py-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-800">
+                        META API
+                      </span>
+                      <h3 className="font-semibold text-slate-900">{c.name}</h3>
+                      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                        {c.status}
+                      </span>
+                      <span className="rounded bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                        Read only
+                      </span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-500">
+                      <span>ID: {c.id}</span>
+                      {c.objective && <span>Objetivo: {c.objective}</span>}
+                      {c.daily_budget && (
+                        <span>Presupuesto diario: {c.daily_budget}</span>
+                      )}
+                      {c.created_time && (
+                        <span>Creada: {new Date(c.created_time).toLocaleDateString("es-AR")}</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         <div className="flex flex-wrap gap-3">
           <select
             className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
@@ -330,13 +420,14 @@ export default function CampaignsPage() {
                   </div>
                 )}
 
-                {c.platform === "META" && (
+                {c.platform === "META" && !isReadOnlyAds && (
                   <MetaPlacementPanel
                     campaign={c}
                     onSave={(updates) => saveMetaPlacements(c.id, updates)}
                   />
                 )}
 
+                {!isReadOnlyAds && (
                 <div className="mt-4 flex gap-3">
                   <Button
                     size="sm"
@@ -407,6 +498,13 @@ export default function CampaignsPage() {
                     </Button>
                   )}
                 </div>
+                )}
+
+                {isReadOnlyAds && (
+                  <p className="mt-4 text-xs text-slate-500">
+                    Acciones de plataforma deshabilitadas en ADS_MODE=read_only.
+                  </p>
+                )}
               </div>
             ))}
           </div>

@@ -12,9 +12,11 @@ import {
   Bot,
   BookOpen,
   LogOut,
+  Plug,
+  Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
-import { isMockMode } from "@/lib/utils/config";
+import { isMockMode, isReadOnlyMode } from "@/lib/utils/config";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 
 const navItems = [
@@ -25,6 +27,7 @@ const navItems = [
   { href: "/campaigns", label: "Campañas", icon: Layers },
   { href: "/approvals", label: "Aprobaciones", icon: ShieldCheck },
   { href: "/metrics", label: "Métricas", icon: BarChart3 },
+  { href: "/settings/integrations", label: "Integraciones", icon: Plug },
 ];
 
 export function Sidebar() {
@@ -53,6 +56,16 @@ export function Sidebar() {
         <div className="mx-4 mt-4 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2">
           <p className="text-xs font-medium text-amber-400">Modo demo/mock</p>
           <p className="text-[10px] text-amber-400/70">Sin APIs reales conectadas</p>
+        </div>
+      )}
+
+      {isReadOnlyMode() && (
+        <div className="mx-4 mt-4 rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-3 py-2">
+          <p className="text-xs font-medium text-emerald-400 flex items-center gap-1">
+            <Eye className="h-3 w-3" />
+            Solo lectura Meta
+          </p>
+          <p className="text-[10px] text-emerald-400/70">Sin escritura en plataformas</p>
         </div>
       )}
 

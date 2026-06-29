@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { adsModeErrorResponse, apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { assertReadOnlyModeAllows } from "@/lib/ads/adsModeGuard";
 import { createMetaCampaignPaused } from "@/lib/ads/metaAdsService";
 import { createGoogleCampaignPaused } from "@/lib/ads/googleAdsService";
 import { createApprovalRequestForAction } from "@/lib/approvals/approvalGate";
@@ -15,6 +16,8 @@ export async function POST(request: Request) {
     if (!campaignPlanId) {
       return apiFail("campaignPlanId es requerido", "MISSING_CAMPAIGN_PLAN_ID", 400);
     }
+
+    assertReadOnlyModeAllows("CREATE_CAMPAIGN");
 
     const plan = await repo.getCampaignPlan(campaignPlanId);
     if (!plan) {
@@ -72,6 +75,8 @@ export async function POST(request: Request) {
   } catch (error) {
     const unauth = unauthorizedResponse(error);
     if (unauth) return unauth;
+    const modeErr = adsModeErrorResponse(error);
+    if (modeErr) return modeErr;
     return apiErrorResponse(error, "CAMPAIGN_CREATE_PAUSED_FAILED");
   }
 }

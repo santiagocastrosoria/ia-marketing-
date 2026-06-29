@@ -4,6 +4,7 @@ import {
   isMockMode,
 } from "@/lib/utils/config";
 import { channelPlacementDisplayName } from "@/lib/ads/metaPlacements";
+import { getMetaInsights } from "@/lib/ads/metaRealService";
 
 export interface PlacementMetricRow {
   platform: string;
@@ -139,73 +140,48 @@ export async function fetchMetaPlacementInsights(
     return buildSimulatedPlacementInsights(plan);
   }
 
-  const accessToken = process.env.META_ACCESS_TOKEN;
   const campaignId = plan.platform_campaign_id;
 
-  if (!accessToken || !campaignId) {
+  if (!campaignId) {
     return buildSimulatedPlacementInsights(plan);
   }
 
   try {
-    const params = new URLSearchParams({
-      access_token: accessToken,
-      fields: "spend,impressions,clicks,actions",
-      breakdowns: "publisher_platform,platform_position",
-      time_range: JSON.stringify(
-        dateRange ?? {
-          since: new Date(Date.now() - 14 * 86400000).toISOString().split("T")[0],
-          until: new Date().toISOString().split("T")[0],
-        }
-      ),
-    });
-
-    const url = `https://graph.facebook.com/v21.0/${campaignId}/insights?${params}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      return buildSimulatedPlacementInsights(plan);
-    }
-
-    const json = (await res.json()) as {
-      data?: Array<{
-        publisher_platform?: string;
-        platform_position?: string;
-        spend?: string;
-        impressions?: string;
-        clicks?: string;
-        actions?: Array<{ action_type: string; value: string }>;
-      }>;
+    const range = dateRange ?? {
+      since: new Date(Date.now() - 14 * 86400000).toISOString().split("T")[0],
+      until: new Date().toISOString().split("T")[0],
     };
 
-    const rows: PlacementMetricRow[] = (json.data ?? []).map((row) => {
-      const spend = parseFloat(row.spend ?? "0");
-      const impressions = parseInt(row.impressions ?? "0", 10);
-      const clicks = parseInt(row.clicks ?? "0", 10);
-      const leads =
-        row.actions?.find((a) => a.action_type === "lead")?.value ?? "0";
-      const leadCount = parseInt(leads, 10);
-      const publisher = row.publisher_platform ?? "unknown";
-      const position = row.platform_position ?? "unknown";
-      const { channel, placement } = channelPlacementDisplayName(
-        publisher,
-        position
-      );
-
-      return {
-        platform: plan.platform,
-        channel,
-        placement,
-        publisher_platform: publisher,
-        platform_position: position,
-        spend,
-        impressions,
-        clicks,
-        leads: leadCount,
-        ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
-        cpc: clicks > 0 ? spend / clicks : 0,
-        cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
-        cpl: leadCount > 0 ? spend / leadCount : 0,
-      };
+    const result = await getMetaInsights({
+      level: "campaign",
+      campaignId,
+      since: range.since,
+      until: range.until,
+      breakdowns: ["publisher_platform", "platform_position"],
     });
+
+    const rows: PlacementMetricRow[] = result.rows.map((row) => ({
+      platform: plan.platform,
+      channel: row.channel,
+      placement: row.placement,
+      publisher_platform: row.publisher_platform ?? "unknown",
+      platform_position: row.platform_position ?? "unknown",
+      spend: row.spend,
+      impressions: row.impressions,
+      clicks: row.clicks,
+      leads: row.leads,
+      ctr: row.ctr,
+      cpc: row.cpc,
+      cpm: row.cpm,
+      cpl: row.leads > 0 ? row.spend / row.leads : 0,
+      recommendation: mockRecommendation(
+        row.publisher_platform ?? "unknown",
+        row.platform_position ?? "unknown",
+        row.leads,
+        row.spend,
+        row.leads > 0 ? row.spend / row.leads : 0
+      ),
+    }));
 
     return aggregatePlacementRows(rows, "meta_api", false);
   } catch {

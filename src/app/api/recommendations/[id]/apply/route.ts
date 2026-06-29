@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { adsModeErrorResponse, apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { assertReadOnlyModeAllows } from "@/lib/ads/adsModeGuard";
 import {
   executeWithApprovalGate,
   ApprovalGateError,
@@ -96,6 +97,8 @@ export async function POST(
   } catch (error) {
     const unauth = unauthorizedResponse(error);
     if (unauth) return unauth;
+    const modeErr = adsModeErrorResponse(error);
+    if (modeErr) return modeErr;
     if (error instanceof ApprovalGateError) {
       return apiFail(error.message, error.code, 403);
     }

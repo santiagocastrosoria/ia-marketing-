@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { adsModeErrorResponse, apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { assertReadOnlyModeAllows } from "@/lib/ads/adsModeGuard";
 import { getAuthContext, unauthorizedResponse } from "@/lib/api/withAuth";
 import { checkApprovalGate } from "@/lib/approvals/approvalGate";
 import type { CampaignPlan, ProposedAction } from "@/lib/types/marketing";
@@ -10,6 +11,7 @@ export async function PATCH(
 ) {
   try {
     const { userId, repo } = await getAuthContext();
+    assertReadOnlyModeAllows("CHANGE_PLACEMENTS");
     const { id } = await params;
     const body = (await request.json()) as Partial<CampaignPlan>;
 
@@ -74,6 +76,8 @@ export async function PATCH(
   } catch (error) {
     const unauth = unauthorizedResponse(error);
     if (unauth) return unauth;
+    const modeErr = adsModeErrorResponse(error);
+    if (modeErr) return modeErr;
     return apiErrorResponse(error, "META_PLACEMENTS_UPDATE_FAILED");
   }
 }

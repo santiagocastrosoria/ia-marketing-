@@ -1,15 +1,25 @@
 import { DEMO_USER_ID } from "@/lib/constants/demoIds";
 
-export type AdsMode = "mock" | "read_only" | "live";
+export type AdsMode = "mock" | "read_only" | "draft_only" | "live_approval";
+
+function normalizeAdsMode(raw: string | undefined): AdsMode {
+  const mode = (raw ?? "mock").trim().toLowerCase();
+  if (mode === "live") return "live_approval";
+  if (
+    mode === "read_only" ||
+    mode === "draft_only" ||
+    mode === "live_approval" ||
+    mode === "mock"
+  ) {
+    return mode;
+  }
+  return "mock";
+}
 
 export function getAdsMode(): AdsMode {
-  const mode =
-    process.env.ADS_MODE ??
-    process.env.NEXT_PUBLIC_ADS_MODE ??
-    "mock";
-  if (mode === "live") return "live";
-  if (mode === "read_only") return "read_only";
-  return "mock";
+  return normalizeAdsMode(
+    process.env.ADS_MODE ?? process.env.NEXT_PUBLIC_ADS_MODE
+  );
 }
 
 export function isMockMode(): boolean {
@@ -20,15 +30,27 @@ export function isReadOnlyMode(): boolean {
   return getAdsMode() === "read_only";
 }
 
-export function isLiveMode(): boolean {
-  return getAdsMode() === "live";
+export function isDraftOnlyMode(): boolean {
+  return getAdsMode() === "draft_only";
 }
 
-/** Insights reales desde Meta API (read_only o live) si hay credenciales */
+export function isLiveApprovalMode(): boolean {
+  return getAdsMode() === "live_approval";
+}
+
+/** @deprecated usar isLiveApprovalMode */
+export function isLiveMode(): boolean {
+  return isLiveApprovalMode();
+}
+
+/** Insights reales desde Meta API (read_only con credenciales) */
 export function canUseMetaInsights(): boolean {
-  const mode = getAdsMode();
-  if (mode === "mock") return false;
-  return !!(process.env.META_ACCESS_TOKEN && process.env.META_AD_ACCOUNT_ID);
+  if (isMockMode()) return false;
+  if (!isReadOnlyMode()) return false;
+  return !!(
+    process.env.META_ACCESS_TOKEN?.trim() &&
+    process.env.META_AD_ACCOUNT_ID?.trim()
+  );
 }
 
 export function isSupabaseConfigured(): boolean {

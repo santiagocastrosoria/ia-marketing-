@@ -16,9 +16,11 @@ import type { MetaInsightsResult } from "@/lib/ads/metaInsightsService";
 import { instagramPositionLabel } from "@/lib/ads/metaPlacements";
 import { Loader2, BarChart3, Sparkles, AlertTriangle, Camera } from "lucide-react";
 import { formatARS } from "@/lib/utils/formatARS";
+import type { MetaInsightRow } from "@/lib/ads/metaRealService";
 import { fetchJson, FetchApiError } from "@/lib/api/fetchClient";
 
 type AnalysisScope = "campaign" | "objective" | "all";
+type MetricsSource = "simulated" | "meta_real";
 
 type AnalysisResult = {
   summary: string;
@@ -49,6 +51,11 @@ export default function MetricsPage() {
     useState<MetaInsightsResult | null>(null);
   const [aggregatedRows, setAggregatedRows] = useState<AggregatedPlacementRow[]>([]);
   const [analyzeScope, setAnalyzeScope] = useState<AnalysisScope>("objective");
+  const [metricsSource, setMetricsSource] = useState<MetricsSource>("simulated");
+  const [metaConfigured, setMetaConfigured] = useState(false);
+  const [realMetaRows, setRealMetaRows] = useState<MetaInsightRow[]>([]);
+  const [realMetaLoading, setRealMetaLoading] = useState(false);
+  const [realMetaError, setRealMetaError] = useState<string | null>(null);
   const [period, setPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
@@ -82,6 +89,49 @@ export default function MetricsPage() {
   useEffect(() => {
     load();
   }, [period, selectedCampaign, analyzeScope]);
+
+  useEffect(() => {
+    fetchJson<{ meta?: { metaReadEnabled?: boolean } }>("/api/integrations/status")
+      .then((data) => setMetaConfigured(!!data.meta?.metaReadEnabled))
+      .catch(() => setMetaConfigured(false));
+  }, []);
+
+  const loadRealMetaInsights = async () => {
+    setRealMetaLoading(true);
+    setRealMetaError(null);
+    try {
+      const preset =
+        period === "1"
+          ? "today"
+          : period === "7"
+            ? "last_7d"
+            : period === "14"
+              ? "last_14d"
+              : "last_30d";
+      const data = await fetchJson<{ rows: MetaInsightRow[]; message?: string }>(
+        `/api/integrations/meta/insights?datePreset=${preset}`
+      );
+      setRealMetaRows(data.rows ?? []);
+      if ((data.rows ?? []).length === 0) {
+        setRealMetaError(
+          data.message ?? "No hay datos de insights Meta para el período seleccionado."
+        );
+      }
+    } catch (err) {
+      setRealMetaRows([]);
+      setRealMetaError(
+        err instanceof FetchApiError ? err.message : "No se pudieron cargar métricas Meta"
+      );
+    } finally {
+      setRealMetaLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (metricsSource === "meta_real" && adsMode === "read_only" && metaConfigured) {
+      loadRealMetaInsights();
+    }
+  }, [metricsSource, period, metaConfigured]);
 
   const analyze = async () => {
     setAnalyzing(true);
@@ -202,6 +252,20 @@ export default function MetricsPage() {
           <div className="flex flex-wrap gap-3">
             <select
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              value={metricsSource}
+              onChange={(e) => setMetricsSource(e.target.value as MetricsSource)}
+            >
+              <option value="simulated">Métricas simuladas</option>
+              <option
+                value="meta_real"
+                disabled={adsMode !== "read_only" || !metaConfigured}
+              >
+                Métricas reales Meta/Instagram
+                {adsMode !== "read_only" || !metaConfigured ? " (no disponible)" : ""}
+              </option>
+            </select>
+            <select
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
               value={analyzeScope}
               onChange={(e) => setAnalyzeScope(e.target.value as AnalysisScope)}
             >
@@ -246,7 +310,7 @@ export default function MetricsPage() {
                 ))}
               </select>
             )}
-            <Button onClick={analyze} disabled={analyzing}>
+            <Button onClick={analyze} disabled={analyzing || metricsSource === "meta_real"}>
               {analyzing ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -259,13 +323,41 @@ export default function MetricsPage() {
 
         <MetricsSourceBanner
           adsMode={adsMode}
+          metricsSource={metricsSource}
           simulated={
-            placementBreakdown?.simulated ??
-            analysis?.placementInsights?.simulated ??
-            adsMode === "mock"
+            metricsSource === "simulated" ||
+            adsMode === "mock" ||
+            placementBreakdown?.simulated === true ||
+            analysis?.placementInsights?.simulated === true
           }
-          source={placementBreakdown?.source}
+          source={metricsSource === "meta_real" ? "meta_api" : placementBreakdown?.source}
         />
+
+        {metricsSource === "meta_real" && adsMode === "read_only" && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            <p className="font-semibold">Métricas reales de Meta/Instagram en solo lectura</p>
+            <p className="mt-1 text-emerald-800">
+              Datos importados desde Meta Marketing API. No podés crear, editar ni activar
+              campañas desde esta app.
+            </p>
+          </div>
+        )}
+
+        {metricsSource === "meta_real" && realMetaLoading && (
+          <div className="flex justify-center py-6">
+            <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+          </div>
+        )}
+
+        {metricsSource === "meta_real" && realMetaError && !realMetaLoading && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            {realMetaError}
+          </div>
+        )}
+
+        {metricsSource === "meta_real" && realMetaRows.length > 0 && !realMetaLoading && (
+          <RealMetaInsightsTable rows={realMetaRows} />
+        )}
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
           <MetricCard label="Gasto" value={formatARS(totals.spend)} />
@@ -285,7 +377,7 @@ export default function MetricsPage() {
           />
         </div>
 
-        {analysis && (
+        {metricsSource === "simulated" && analysis && (
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
             <h2 className="font-semibold text-indigo-900 flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
@@ -338,17 +430,18 @@ export default function MetricsPage() {
           </div>
         )}
 
-        {aggregatedRows.length > 0 && (
+        {metricsSource === "simulated" && aggregatedRows.length > 0 && (
           <AggregatedPlacementTable rows={aggregatedRows} />
         )}
 
-        {placementBreakdown &&
+        {metricsSource === "simulated" &&
+          placementBreakdown &&
           placementBreakdown.rows.length > 0 &&
           aggregatedRows.length === 0 && (
           <PlacementBreakdownSection breakdown={placementBreakdown} />
         )}
 
-        {recommendations.length > 0 && (
+        {metricsSource === "simulated" && recommendations.length > 0 && (
           <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-semibold text-slate-900">Recomendaciones</h2>
             <div className="mt-4 space-y-3">
@@ -384,7 +477,7 @@ export default function MetricsPage() {
           </div>
         )}
 
-        {metrics.length > 0 && (
+        {metricsSource === "simulated" && metrics.length > 0 && (
           <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
             <table className="w-full text-sm">
               <thead className="bg-slate-50">
@@ -485,13 +578,29 @@ function AggregatedPlacementTable({ rows }: { rows: AggregatedPlacementRow[] }) 
 
 function MetricsSourceBanner({
   adsMode,
+  metricsSource,
   simulated,
   source,
 }: {
   adsMode: string;
+  metricsSource: MetricsSource;
   simulated: boolean;
   source?: MetaInsightsResult["source"];
 }) {
+  if (metricsSource === "meta_real" && adsMode === "read_only") {
+    return (
+      <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+        <Camera className="h-5 w-5 shrink-0 text-emerald-600" />
+        <div>
+          <p className="font-semibold">Fuente: Meta/Instagram API (solo lectura)</p>
+          <p className="mt-0.5 text-emerald-800">
+            Desglose por publisher_platform y platform_position — Reels, Stories, Feed, etc.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (simulated || adsMode === "mock") {
     return (
       <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -648,6 +757,68 @@ function PlacementBreakdownSection({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function RealMetaInsightsTable({ rows }: { rows: MetaInsightRow[] }) {
+  const totals = rows.reduce(
+    (acc, r) => ({
+      spend: acc.spend + r.spend,
+      impressions: acc.impressions + r.impressions,
+      clicks: acc.clicks + r.clicks,
+      leads: acc.leads + r.leads,
+    }),
+    { spend: 0, impressions: 0, clicks: 0, leads: 0 }
+  );
+
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-white shadow-sm overflow-hidden">
+      <p className="px-4 py-3 text-sm font-semibold text-emerald-900 bg-emerald-50 border-b border-emerald-100">
+        Métricas reales Meta — por canal y placement
+      </p>
+      <div className="grid grid-cols-2 gap-4 p-4 md:grid-cols-4 border-b border-slate-100">
+        <MetricCard label="Gasto total" value={formatARS(totals.spend)} />
+        <MetricCard label="Impresiones" value={totals.impressions.toLocaleString("es-AR")} />
+        <MetricCard label="Clics" value={totals.clicks.toLocaleString("es-AR")} />
+        <MetricCard label="Leads" value={totals.leads.toString()} />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[800px]">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-3 py-2 text-left font-medium text-slate-500">Canal</th>
+              <th className="px-3 py-2 text-left font-medium text-slate-500">Placement</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Gasto</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Impr.</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Alcance</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Clics</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">CTR</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">CPC</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">CPM</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Leads</th>
+              <th className="px-3 py-2 text-right font-medium text-slate-500">Conv.</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {rows.map((row, i) => (
+              <tr key={`${row.channel}-${row.placement}-${i}`} className="hover:bg-emerald-50/30">
+                <td className="px-3 py-2 font-medium">{row.channel}</td>
+                <td className="px-3 py-2">{row.placement}</td>
+                <td className="px-3 py-2 text-right">{formatARS(row.spend)}</td>
+                <td className="px-3 py-2 text-right">{row.impressions.toLocaleString("es-AR")}</td>
+                <td className="px-3 py-2 text-right">{row.reach.toLocaleString("es-AR")}</td>
+                <td className="px-3 py-2 text-right">{row.clicks}</td>
+                <td className="px-3 py-2 text-right">{row.ctr.toFixed(2)}%</td>
+                <td className="px-3 py-2 text-right">{formatARS(row.cpc)}</td>
+                <td className="px-3 py-2 text-right">{formatARS(row.cpm)}</td>
+                <td className="px-3 py-2 text-right">{row.leads}</td>
+                <td className="px-3 py-2 text-right">{row.conversions}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

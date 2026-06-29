@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { adsModeErrorResponse, apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { assertReadOnlyModeAllows } from "@/lib/ads/adsModeGuard";
 import { activateMetaCampaign } from "@/lib/ads/metaAdsService";
 import { activateGoogleCampaign } from "@/lib/ads/googleAdsService";
 import { ApprovalGateError } from "@/lib/approvals/approvalGate";
@@ -21,6 +22,8 @@ export async function POST(
     if (!plan) {
       return apiFail("Campaña no encontrada", "CAMPAIGN_NOT_FOUND", 404);
     }
+
+    assertReadOnlyModeAllows("ACTIVATE_CAMPAIGN");
 
     if (!approvalRequestId) {
       const approvals = await repo.getApprovalRequests("APPROVED");
@@ -86,6 +89,8 @@ export async function POST(
   } catch (error) {
     const unauth = unauthorizedResponse(error);
     if (unauth) return unauth;
+    const modeErr = adsModeErrorResponse(error);
+    if (modeErr) return modeErr;
     if (error instanceof ApprovalGateError) {
       return apiFail(error.message, error.code, 403);
     }

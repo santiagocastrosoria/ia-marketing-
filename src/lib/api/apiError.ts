@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { formatSupabaseError } from "@/lib/api/logApiError";
+import {
+  DraftOnlyNotImplementedError,
+  LiveApprovalNotImplementedError,
+  ReadOnlyModeError,
+} from "@/lib/ads/adsModeGuard";
 
 export interface ApiErrorBody {
   error: true;
@@ -69,4 +74,18 @@ export function apiFail(
   extra?: Record<string, unknown>
 ): NextResponse<ApiErrorBody & Record<string, unknown>> {
   return NextResponse.json({ error: true, code, message, ...extra }, { status });
+}
+
+/** Maneja errores de modo ADS (read_only, draft_only, live_approval). */
+export function adsModeErrorResponse(error: unknown): NextResponse | null {
+  if (error instanceof ReadOnlyModeError) {
+    return apiFail(error.message, error.code, 403, { action: error.action });
+  }
+  if (error instanceof DraftOnlyNotImplementedError) {
+    return apiFail(error.message, error.code, 501);
+  }
+  if (error instanceof LiveApprovalNotImplementedError) {
+    return apiFail(error.message, error.code, 501);
+  }
+  return null;
 }

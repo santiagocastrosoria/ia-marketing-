@@ -1,4 +1,5 @@
 import { checkApprovalGate, ApprovalGateError } from "@/lib/approvals/approvalGate";
+import { assertReadOnlyModeAllows } from "@/lib/ads/adsModeGuard";
 import { isMockMode } from "@/lib/utils/config";
 import type { CampaignPlan, ProposedAction } from "@/lib/types/marketing";
 import { v4 as uuidv4 } from "uuid";
@@ -13,6 +14,8 @@ export async function createGoogleCampaignPaused(
   plan: CampaignPlan,
   userId: string
 ): Promise<GoogleCampaignResult> {
+  assertReadOnlyModeAllows("CREATE_CAMPAIGN");
+
   const action: ProposedAction = {
     type: "CREATE_ACTIVE_CAMPAIGN",
     entityType: "campaign_plan",
@@ -67,6 +70,8 @@ export async function activateGoogleCampaign(
   userId: string,
   approvalRequestId: string
 ): Promise<GoogleCampaignResult> {
+  assertReadOnlyModeAllows("ACTIVATE_CAMPAIGN");
+
   const action: ProposedAction = {
     type: "ACTIVATE_CAMPAIGN",
     entityType: "campaign_plan",
@@ -104,6 +109,7 @@ export async function activateGoogleCampaign(
 export async function pauseGoogleCampaign(
   platformCampaignId: string
 ): Promise<void> {
+  assertReadOnlyModeAllows("PAUSE_CAMPAIGN");
   if (isMockMode()) return;
   // Future: Google Ads API pause
 }
