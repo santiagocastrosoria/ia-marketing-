@@ -2,6 +2,7 @@ import type { CampaignMetrics, CampaignPlan, AggregatedPlacementRow } from "@/li
 import {
   canUseMetaInsights,
   isMockMode,
+  isReadOnlyMode,
 } from "@/lib/utils/config";
 import { channelPlacementDisplayName } from "@/lib/ads/metaPlacements";
 import { getMetaInsights } from "@/lib/ads/metaRealService";
@@ -184,7 +185,10 @@ export async function fetchMetaPlacementInsights(
     }));
 
     return aggregatePlacementRows(rows, "meta_api", false);
-  } catch {
+  } catch (error) {
+    if (isReadOnlyMode() && canUseMetaInsights()) {
+      throw error;
+    }
     return buildSimulatedPlacementInsights(plan);
   }
 }

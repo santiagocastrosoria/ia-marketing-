@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import { adsModeErrorResponse, apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { metaApiErrorResponse } from "@/lib/ads/metaApiRouteHelper";
 import { getAuthContext, unauthorizedResponse } from "@/lib/api/withAuth";
 import {
   listMetaCampaigns,
-  MetaApiError,
-  MetaConfigError,
 } from "@/lib/ads/metaRealService";
 import { isReadOnlyMode } from "@/lib/utils/config";
 
@@ -38,14 +37,8 @@ export async function GET(request: Request) {
     const modeErr = adsModeErrorResponse(error);
     if (modeErr) return modeErr;
 
-    if (error instanceof MetaConfigError) {
-      return apiFail(error.message, error.code, 400);
-    }
-    if (error instanceof MetaApiError) {
-      return apiFail(error.message, error.code, 502, {
-        details: String(error.details ?? ""),
-      });
-    }
+    const metaErr = metaApiErrorResponse(error);
+    if (metaErr) return metaErr;
 
     return apiErrorResponse(error, "META_CAMPAIGNS_FAILED");
   }

@@ -1,12 +1,9 @@
 import { NextResponse } from "next/server";
 import { apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { metaApiErrorResponse } from "@/lib/ads/metaApiRouteHelper";
 import { getAuthContext, unauthorizedResponse } from "@/lib/api/withAuth";
 import { getMetaIntegrationStatus } from "@/lib/ads/metaConfig";
-import {
-  MetaApiError,
-  MetaConfigError,
-  testMetaConnection,
-} from "@/lib/ads/metaRealService";
+import { testMetaConnection } from "@/lib/ads/metaRealService";
 import { isReadOnlyMode } from "@/lib/utils/config";
 import { auditLog } from "@/lib/security/auditLogger";
 
@@ -62,18 +59,8 @@ export async function POST() {
     const unauth = unauthorizedResponse(error);
     if (unauth) return unauth;
 
-    if (error instanceof MetaConfigError) {
-      return apiFail(error.message, error.code, 400, {
-        meta: getMetaIntegrationStatus(false, error.message),
-      });
-    }
-
-    if (error instanceof MetaApiError) {
-      return apiFail(error.message, error.code, 502, {
-        details: String(error.details ?? ""),
-        meta: getMetaIntegrationStatus(false, error.message),
-      });
-    }
+    const metaErr = metaApiErrorResponse(error);
+    if (metaErr) return metaErr;
 
     return apiErrorResponse(error, "META_TEST_FAILED");
   }

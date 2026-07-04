@@ -1,4 +1,8 @@
 import { getAdsMode, type AdsMode } from "@/lib/utils/config";
+import {
+  getMetaApiRuntimeState,
+  META_ADS_READ_PERMISSION_SUGGESTION,
+} from "@/lib/ads/metaApiState";
 
 export type MetaConfigStatus =
   | "not_configured"
@@ -17,6 +21,16 @@ export interface MetaIntegrationStatus {
   hasAppId: boolean;
   hasAppSecret: boolean;
   hasAccessToken: boolean;
+  /** Token configurado en servidor */
+  tokenConfigured: boolean;
+  /** Ad account ID configurado */
+  adAccountConfigured: boolean;
+  /** null = sin verificar; true/false según última prueba Meta */
+  adsReadConfirmed: boolean | null;
+  lastMetaError?: string;
+  lastMetaErrorCode?: string;
+  lastCheckedAt?: string;
+  permissionSuggestion?: string;
   missingVariables: string[];
   optionalMissing?: string[];
 }
@@ -59,6 +73,9 @@ export function getMetaIntegrationStatus(
   const adsMode = getAdsMode();
   const missing = getMissingMetaVariables();
   const adAccountId = normalizeAdAccountId(process.env.META_AD_ACCOUNT_ID);
+  const runtime = getMetaApiRuntimeState();
+  const hasAccessToken = !!process.env.META_ACCESS_TOKEN?.trim();
+  const adAccountConfigured = !!adAccountId;
   const metaReadEnabled =
     adsMode === "read_only" && missing.length === 0;
 
@@ -77,10 +94,20 @@ export function getMetaIntegrationStatus(
     if (connectionOk === false && connectionError) {
       status = "connection_failed";
       message = connectionError;
+      if (runtime.lastMetaErrorCode === "META_PERMISSION_DENIED") {
+        message = connectionError;
+      }
     }
   } else {
     message = `Faltan credenciales: ${missing.join(", ")}`;
   }
+
+  const adsReadConfirmed =
+    connectionOk === true
+      ? true
+      : connectionOk === false && runtime.lastMetaErrorCode === "META_PERMISSION_DENIED"
+        ? false
+        : runtime.adsReadConfirmed;
 
   return {
     adsMode,
@@ -91,7 +118,18 @@ export function getMetaIntegrationStatus(
     adAccountIdMasked: adAccountId ? maskAdAccountId(adAccountId) : undefined,
     hasAppId: !!process.env.META_APP_ID?.trim(),
     hasAppSecret: !!process.env.META_APP_SECRET?.trim(),
-    hasAccessToken: !!process.env.META_ACCESS_TOKEN?.trim(),
+    hasAccessToken,
+    tokenConfigured: hasAccessToken,
+    adAccountConfigured,
+    adsReadConfirmed,
+    lastMetaError: runtime.lastMetaError ?? (connectionOk === false ? connectionError : undefined),
+    lastMetaErrorCode: runtime.lastMetaErrorCode,
+    lastCheckedAt: runtime.lastCheckedAt,
+    permissionSuggestion:
+      runtime.lastMetaErrorCode === "META_PERMISSION_DENIED" ||
+      adsReadConfirmed === false
+        ? META_ADS_READ_PERMISSION_SUGGESTION
+        : undefined,
     missingVariables: missing,
     optionalMissing: OPTIONAL.filter((k) => !process.env[k]?.trim()),
   };

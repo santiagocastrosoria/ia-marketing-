@@ -5,6 +5,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
 import { fetchJson, FetchApiError } from "@/lib/api/fetchClient";
 import type { MetaIntegrationStatus } from "@/lib/ads/metaConfig";
+import type { MetaDebugPermissionsReport } from "@/lib/ads/metaDebugService";
 import type { MetaAdAccount, MetaInsightRow, MetaRealCampaign } from "@/lib/ads/metaRealService";
 import {
   AlertTriangle,
@@ -12,6 +13,7 @@ import {
   Eye,
   Loader2,
   Plug,
+  Search,
   Shield,
   XCircle,
 } from "lucide-react";
@@ -39,6 +41,8 @@ export default function IntegrationsSettingsPage() {
   const [insights, setInsights] = useState<MetaInsightRow[] | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [diagnostic, setDiagnostic] = useState<MetaDebugPermissionsReport | null>(null);
+  const [loadingDiagnostic, setLoadingDiagnostic] = useState(false);
 
   const loadStatus = useCallback(() => {
     setLoading(true);
@@ -73,6 +77,7 @@ export default function IntegrationsSettingsPage() {
       if (err instanceof FetchApiError && err.body?.meta) {
         setMeta(err.body.meta as MetaIntegrationStatus);
       }
+      loadStatus();
     } finally {
       setTesting(false);
     }
@@ -98,6 +103,26 @@ export default function IntegrationsSettingsPage() {
     }
   };
 
+  const loadDiagnostic = async () => {
+    setLoadingDiagnostic(true);
+    setActionMessage(null);
+    setActionError(null);
+    try {
+      const data = await fetchJson<{ diagnostic: MetaDebugPermissionsReport }>(
+        "/api/integrations/meta/debug-permissions"
+      );
+      setDiagnostic(data.diagnostic);
+      setActionMessage("Diagnóstico de permisos completado (solo lectura).");
+    } catch (err) {
+      setDiagnostic(null);
+      setActionError(
+        err instanceof FetchApiError ? err.message : "Error al diagnosticar permisos"
+      );
+    } finally {
+      setLoadingDiagnostic(false);
+    }
+  };
+
   const loadInsights = async () => {
     setLoadingInsights(true);
     setActionMessage(null);
@@ -116,6 +141,10 @@ export default function IntegrationsSettingsPage() {
         err instanceof FetchApiError ? err.message : "Error al leer métricas"
       );
       setInsights(null);
+      if (err instanceof FetchApiError && err.body?.meta) {
+        setMeta(err.body.meta as MetaIntegrationStatus);
+      }
+      loadStatus();
     } finally {
       setLoadingInsights(false);
     }
@@ -177,19 +206,55 @@ export default function IntegrationsSettingsPage() {
           </div>
 
           {meta && (
-            <div className="rounded-lg bg-slate-50 p-4 text-sm space-y-2">
+            <div className="rounded-lg bg-slate-50 p-4 text-sm space-y-3">
               <p className="text-slate-700">{meta.message}</p>
+
+              <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2 text-sm">
+                <MetaCheckItem label="Token configurado" ok={meta.tokenConfigured} />
+                <MetaCheckItem label="Ad account configurada" ok={meta.adAccountConfigured} />
+                <MetaCheckItem
+                  label="Permiso ads_read confirmado"
+                  ok={meta.adsReadConfirmed}
+                  unknown={meta.adsReadConfirmed === null}
+                />
+              </dl>
+
               {meta.adAccountIdMasked && (
                 <p>
                   <span className="text-slate-500">Ad Account: </span>
                   <span className="font-mono">{meta.adAccountIdMasked}</span>
                 </p>
               )}
+
+              {meta.lastMetaError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-red-800">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-red-600">
+                    Último error Meta
+                  </p>
+                  <p className="mt-1">{meta.lastMetaError}</p>
+                  {meta.lastMetaErrorCode && (
+                    <p className="mt-1 text-xs font-mono text-red-600">{meta.lastMetaErrorCode}</p>
+                  )}
+                </div>
+              )}
+
+              {(meta.permissionSuggestion ||
+                meta.lastMetaErrorCode === "META_PERMISSION_DENIED" ||
+                meta.adsReadConfirmed === false) && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+                  <p className="text-xs font-semibold">Cómo corregir permisos</p>
+                  <p className="mt-1">
+                    {meta.permissionSuggestion ??
+                      "Revisá Business Settings → Usuarios del sistema → Activos → Cuenta publicitaria → Ver rendimiento / Administrar campañas."}
+                  </p>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-3 text-xs text-slate-600">
                 <span>App ID: {meta.hasAppId ? "✓" : "—"}</span>
                 <span>App Secret: {meta.hasAppSecret ? "✓ (servidor)" : "—"}</span>
-                <span>Access Token: {meta.hasAccessToken ? "✓ (servidor)" : "—"}</span>
               </div>
+
               {meta.missingVariables.length > 0 && (
                 <p className="text-amber-700 text-xs">
                   Faltan: {meta.missingVariables.join(", ")}
@@ -234,6 +299,19 @@ export default function IntegrationsSettingsPage() {
                 )}
                 Leer métricas Meta
               </Button>
+              <Button
+                variant="secondary"
+                onClick={loadDiagnostic}
+                disabled={loadingDiagnostic}
+                size="sm"
+              >
+                {loadingDiagnostic ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )}
+                Diagnosticar permisos
+              </Button>
             </div>
           )}
 
@@ -259,6 +337,10 @@ export default function IntegrationsSettingsPage() {
             <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               {actionError}
             </p>
+          )}
+
+          {diagnostic && (
+            <MetaDiagnosticPanel report={diagnostic} />
           )}
 
           {campaigns && campaigns.length > 0 && (
@@ -339,6 +421,156 @@ export default function IntegrationsSettingsPage() {
         </section>
       </div>
     </AppShell>
+  );
+}
+
+function MetaDiagnosticPanel({ report }: { report: MetaDebugPermissionsReport }) {
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4 space-y-4">
+      <h3 className="text-sm font-semibold text-indigo-900 flex items-center gap-2">
+        <Search className="h-4 w-4" />
+        Diagnóstico de permisos Meta (solo lectura)
+      </h3>
+
+      <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2 text-sm">
+        <MetaCheckItem label="Token válido" ok={report.tokenValid} />
+        <MetaCheckItem label="Tiene ads_read" ok={report.hasAdsReadScope} />
+        <MetaCheckItem
+          label="Ad account configurada encontrada"
+          ok={report.configuredAccountInList}
+          unknown={!report.configuredAdAccountId}
+        />
+        <div>
+          <dt className="text-slate-500">App ID del token</dt>
+          <dd className="font-mono text-xs text-slate-800">
+            {report.tokenDebug.app_id ?? "—"}
+            {report.configuredAppId &&
+              report.tokenDebug.app_id &&
+              report.configuredAppId !== report.tokenDebug.app_id && (
+                <span className="ml-2 text-red-600">≠ META_APP_ID</span>
+              )}
+          </dd>
+        </div>
+      </dl>
+
+      {report.scopesDetected.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-slate-500 mb-1">Scopes detectados</p>
+          <div className="flex flex-wrap gap-1">
+            {report.scopesDetected.map((scope) => (
+              <span
+                key={scope}
+                className={`rounded px-2 py-0.5 text-xs font-mono ${
+                  scope.includes("ads_read") || scope === "ads_management"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-slate-100 text-slate-700"
+                }`}
+              >
+                {scope}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {report.tokenDebug.expires_at_iso && (
+        <p className="text-xs text-slate-600">
+          Expira: {report.tokenDebug.expires_at_iso}
+          {report.tokenDebug.type ? ` · Tipo: ${report.tokenDebug.type}` : ""}
+        </p>
+      )}
+
+      {report.visibleAdAccounts.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-slate-500 mb-2">
+            Cuentas publicitarias visibles por el token ({report.visibleAdAccounts.length})
+          </p>
+          <ul className="text-xs space-y-1 max-h-32 overflow-y-auto">
+            {report.visibleAdAccounts.map((a) => (
+              <li key={a.id} className="font-mono text-slate-700">
+                {a.name} — {a.id}
+                {report.configuredAdAccountId &&
+                  a.id.replace(/^act_/, "") ===
+                    report.configuredAdAccountId.replace(/^act_/, "") && (
+                    <span className="ml-2 text-emerald-700">← configurada</span>
+                  )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div>
+        <p className="text-xs font-medium text-slate-500 mb-2">Resultado por llamada Meta</p>
+        <div className="space-y-2">
+          {report.steps.map((step) => (
+            <div
+              key={step.step}
+              className={`rounded-lg border px-3 py-2 text-xs ${
+                step.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : step.skipped
+                    ? "border-slate-200 bg-slate-50 text-slate-600"
+                    : "border-red-200 bg-red-50 text-red-900"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{step.label}</span>
+                <span>
+                  {step.ok ? "✓ OK" : step.skipped ? "— omitido" : "✗ falló"}
+                </span>
+              </div>
+              {step.error && (
+                <p className="mt-1 font-mono break-all">
+                  {step.error}
+                  {step.errorCode != null ? ` (#${step.errorCode})` : ""}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {report.recommendations.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+            Recomendaciones
+          </p>
+          <ul className="mt-2 space-y-1 list-disc list-inside">
+            {report.recommendations.map((rec) => (
+              <li key={rec}>{rec}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetaCheckItem({
+  label,
+  ok,
+  unknown,
+}: {
+  label: string;
+  ok: boolean | null | undefined;
+  unknown?: boolean;
+}) {
+  let value = "No";
+  let className = "text-red-700";
+  if (unknown || ok === null || ok === undefined) {
+    value = "Sin verificar";
+    className = "text-slate-600";
+  } else if (ok) {
+    value = "Sí";
+    className = "text-emerald-700";
+  }
+
+  return (
+    <div>
+      <dt className="text-slate-500">{label}</dt>
+      <dd className={`font-medium ${className}`}>{value}</dd>
+    </div>
   );
 }
 

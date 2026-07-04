@@ -15,9 +15,17 @@ import type {
 import type { MetaInsightsResult } from "@/lib/ads/metaInsightsService";
 import { instagramPositionLabel } from "@/lib/ads/metaPlacements";
 import { Loader2, BarChart3, Sparkles, AlertTriangle, Camera } from "lucide-react";
+import Link from "next/link";
 import { formatARS } from "@/lib/utils/formatARS";
 import type { MetaInsightRow } from "@/lib/ads/metaRealService";
+import type { MetaIntegrationStatus } from "@/lib/ads/metaConfig";
 import { fetchJson, FetchApiError } from "@/lib/api/fetchClient";
+
+const META_PERMISSION_MESSAGE =
+  "No se pudieron importar métricas reales de Meta/Instagram. Falta permiso ads_read sobre la cuenta publicitaria.";
+
+const META_PERMISSION_SUGGESTION =
+  "Revisá Business Settings → Usuarios del sistema → Activos → Cuenta publicitaria → Ver rendimiento / Administrar campañas.";
 
 type AnalysisScope = "campaign" | "objective" | "all";
 type MetricsSource = "simulated" | "meta_real";
@@ -53,9 +61,11 @@ export default function MetricsPage() {
   const [analyzeScope, setAnalyzeScope] = useState<AnalysisScope>("objective");
   const [metricsSource, setMetricsSource] = useState<MetricsSource>("simulated");
   const [metaConfigured, setMetaConfigured] = useState(false);
+  const [metaIntegration, setMetaIntegration] = useState<MetaIntegrationStatus | null>(null);
   const [realMetaRows, setRealMetaRows] = useState<MetaInsightRow[]>([]);
   const [realMetaLoading, setRealMetaLoading] = useState(false);
   const [realMetaError, setRealMetaError] = useState<string | null>(null);
+  const [realMetaPermissionDenied, setRealMetaPermissionDenied] = useState(false);
   const [period, setPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
@@ -91,14 +101,22 @@ export default function MetricsPage() {
   }, [period, selectedCampaign, analyzeScope]);
 
   useEffect(() => {
-    fetchJson<{ meta?: { metaReadEnabled?: boolean } }>("/api/integrations/status")
-      .then((data) => setMetaConfigured(!!data.meta?.metaReadEnabled))
-      .catch(() => setMetaConfigured(false));
+    fetchJson<{ meta?: MetaIntegrationStatus }>("/api/integrations/status")
+      .then((data) => {
+        setMetaIntegration(data.meta ?? null);
+        setMetaConfigured(!!data.meta?.metaReadEnabled);
+      })
+      .catch(() => {
+        setMetaConfigured(false);
+        setMetaIntegration(null);
+      });
   }, []);
 
   const loadRealMetaInsights = async () => {
     setRealMetaLoading(true);
     setRealMetaError(null);
+    setRealMetaPermissionDenied(false);
+    setRealMetaRows([]);
     try {
       const preset =
         period === "1"
@@ -108,10 +126,13 @@ export default function MetricsPage() {
             : period === "14"
               ? "last_14d"
               : "last_30d";
-      const data = await fetchJson<{ rows: MetaInsightRow[]; message?: string }>(
-        `/api/integrations/meta/insights?datePreset=${preset}`
-      );
+      const data = await fetchJson<{
+        rows: MetaInsightRow[];
+        message?: string;
+        meta?: MetaIntegrationStatus;
+      }>(`/api/integrations/meta/insights?datePreset=${preset}`);
       setRealMetaRows(data.rows ?? []);
+      if (data.meta) setMetaIntegration(data.meta);
       if ((data.rows ?? []).length === 0) {
         setRealMetaError(
           data.message ?? "No hay datos de insights Meta para el período seleccionado."
@@ -119,9 +140,15 @@ export default function MetricsPage() {
       }
     } catch (err) {
       setRealMetaRows([]);
-      setRealMetaError(
-        err instanceof FetchApiError ? err.message : "No se pudieron cargar métricas Meta"
-      );
+      if (err instanceof FetchApiError && err.code === "META_PERMISSION_DENIED") {
+        setRealMetaPermissionDenied(true);
+        setRealMetaError(META_PERMISSION_MESSAGE);
+        if (err.body?.meta) setMetaIntegration(err.body.meta as MetaIntegrationStatus);
+      } else {
+        setRealMetaError(
+          err instanceof FetchApiError ? err.message : "No se pudieron cargar métricas Meta"
+        );
+      }
     } finally {
       setRealMetaLoading(false);
     }
@@ -324,6 +351,7 @@ export default function MetricsPage() {
         <MetricsSourceBanner
           adsMode={adsMode}
           metricsSource={metricsSource}
+          permissionDenied={realMetaPermissionDenied}
           simulated={
             metricsSource === "simulated" ||
             adsMode === "mock" ||
@@ -333,7 +361,7 @@ export default function MetricsPage() {
           source={metricsSource === "meta_real" ? "meta_api" : placementBreakdown?.source}
         />
 
-        {metricsSource === "meta_real" && adsMode === "read_only" && (
+        {metricsSource === "meta_real" && adsMode === "read_only" && !realMetaPermissionDenied && !realMetaError && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             <p className="font-semibold">Métricas reales de Meta/Instagram en solo lectura</p>
             <p className="mt-1 text-emerald-800">
@@ -349,16 +377,21 @@ export default function MetricsPage() {
           </div>
         )}
 
-        {metricsSource === "meta_real" && realMetaError && !realMetaLoading && (
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        {metricsSource === "meta_real" && realMetaPermissionDenied && !realMetaLoading && (
+          <MetaPermissionErrorPanel suggestion={metaIntegration?.permissionSuggestion} />
+        )}
+
+        {metricsSource === "meta_real" && realMetaError && !realMetaLoading && !realMetaPermissionDenied && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             {realMetaError}
           </div>
         )}
 
-        {metricsSource === "meta_real" && realMetaRows.length > 0 && !realMetaLoading && (
+        {metricsSource === "meta_real" && realMetaRows.length > 0 && !realMetaLoading && !realMetaError && (
           <RealMetaInsightsTable rows={realMetaRows} />
         )}
 
+        {metricsSource === "simulated" && (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
           <MetricCard label="Gasto" value={formatARS(totals.spend)} />
           <MetricCard label="Impresiones" value={totals.impressions.toLocaleString("es-AR")} />
@@ -376,6 +409,7 @@ export default function MetricsPage() {
             }
           />
         </div>
+        )}
 
         {metricsSource === "simulated" && analysis && (
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-5">
@@ -579,14 +613,28 @@ function AggregatedPlacementTable({ rows }: { rows: AggregatedPlacementRow[] }) 
 function MetricsSourceBanner({
   adsMode,
   metricsSource,
+  permissionDenied,
   simulated,
   source,
 }: {
   adsMode: string;
   metricsSource: MetricsSource;
+  permissionDenied?: boolean;
   simulated: boolean;
   source?: MetaInsightsResult["source"];
 }) {
+  if (metricsSource === "meta_real" && permissionDenied) {
+    return (
+      <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+        <AlertTriangle className="h-5 w-5 shrink-0 text-red-600" />
+        <div>
+          <p className="font-semibold">Meta/Instagram — error de permisos (no son métricas reales)</p>
+          <p className="mt-0.5 text-red-800">{META_PERMISSION_MESSAGE}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (metricsSource === "meta_real" && adsMode === "read_only") {
     return (
       <div className="flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
@@ -629,6 +677,28 @@ function MetricsSourceBanner({
           Desglose por publisher_platform y platform_position desde Meta.
         </p>
       </div>
+    </div>
+  );
+}
+
+function MetaPermissionErrorPanel({ suggestion }: { suggestion?: string }) {
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-900 space-y-3">
+      <p className="font-semibold flex items-center gap-2">
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+        {META_PERMISSION_MESSAGE}
+      </p>
+      <p className="text-red-800">
+        No se muestran métricas simuladas en este modo. Corregí los permisos en Meta
+        Business y volvé a probar la conexión en{" "}
+        <Link href="/settings/integrations" className="font-medium underline">
+          Integraciones
+        </Link>
+        .
+      </p>
+      <p className="text-red-800 bg-white/60 rounded-lg px-3 py-2 border border-red-100">
+        {suggestion ?? META_PERMISSION_SUGGESTION}
+      </p>
     </div>
   );
 }

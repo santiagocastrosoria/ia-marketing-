@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { adsModeErrorResponse, apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { metaApiErrorResponse } from "@/lib/ads/metaApiRouteHelper";
 import { getAuthContext, unauthorizedResponse } from "@/lib/api/withAuth";
-import {
-  getMetaInsights,
-  MetaApiError,
-  MetaConfigError,
-} from "@/lib/ads/metaRealService";
+import { getMetaIntegrationStatus } from "@/lib/ads/metaConfig";
+import { getMetaInsights } from "@/lib/ads/metaRealService";
 import { isReadOnlyMode } from "@/lib/utils/config";
 import { auditLog } from "@/lib/security/auditLogger";
 
@@ -59,6 +57,7 @@ export async function GET(request: Request) {
       simulated: false,
       rows: result.rows,
       rawCount: result.rawCount,
+      meta: getMetaIntegrationStatus(true),
       message:
         result.rows.length === 0
           ? "No hay datos de insights para el período seleccionado."
@@ -70,14 +69,8 @@ export async function GET(request: Request) {
     const modeErr = adsModeErrorResponse(error);
     if (modeErr) return modeErr;
 
-    if (error instanceof MetaConfigError) {
-      return apiFail(error.message, error.code, 400);
-    }
-    if (error instanceof MetaApiError) {
-      return apiFail(error.message, error.code, 502, {
-        details: String(error.details ?? ""),
-      });
-    }
+    const metaErr = metaApiErrorResponse(error);
+    if (metaErr) return metaErr;
 
     return apiErrorResponse(error, "META_INSIGHTS_FAILED");
   }

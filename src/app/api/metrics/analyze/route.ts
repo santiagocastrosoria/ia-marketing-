@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { apiErrorResponse, apiFail } from "@/lib/api/apiError";
+import { metaApiErrorResponse } from "@/lib/ads/metaApiRouteHelper";
 import {
   analyzeMetrics,
   analyzeAggregatedMetrics,
@@ -190,6 +191,8 @@ export async function POST(request: Request) {
   } catch (error) {
     const unauth = unauthorizedResponse(error);
     if (unauth) return unauth;
+    const metaErr = metaApiErrorResponse(error);
+    if (metaErr) return metaErr;
     return apiErrorResponse(error, "METRICS_ANALYZE_FAILED");
   }
 }

@@ -9,6 +9,12 @@ import {
   normalizeAdAccountId,
 } from "@/lib/ads/metaConfig";
 import { channelPlacementDisplayName } from "@/lib/ads/metaPlacements";
+import {
+  isMetaPermissionDenied,
+  META_ADS_READ_PERMISSION_MESSAGE,
+  recordMetaApiError,
+  recordMetaApiSuccess,
+} from "@/lib/ads/metaApiState";
 import { isReadOnlyMode } from "@/lib/utils/config";
 
 const META_API_VERSION = "v21.0";
@@ -32,6 +38,18 @@ export class MetaApiError extends Error {
   ) {
     super(message);
     this.name = "MetaApiError";
+  }
+}
+
+export class MetaPermissionError extends Error {
+  readonly code = "META_PERMISSION_DENIED" as const;
+
+  constructor(
+    message: string = META_ADS_READ_PERMISSION_MESSAGE,
+    public readonly details?: unknown
+  ) {
+    super(message);
+    this.name = "MetaPermissionError";
   }
 }
 
@@ -154,12 +172,16 @@ async function metaGet<T = Record<string, unknown>>(
   };
 
   if (!res.ok || json.error) {
-    throw new MetaApiError(
-      json.error?.message ?? `Meta API HTTP ${res.status}`,
-      json.error
-    );
+    const errMessage = json.error?.message ?? `Meta API HTTP ${res.status}`;
+    if (isMetaPermissionDenied(json.error)) {
+      recordMetaApiError(META_ADS_READ_PERMISSION_MESSAGE, "META_PERMISSION_DENIED", true);
+      throw new MetaPermissionError(META_ADS_READ_PERMISSION_MESSAGE, json.error);
+    }
+    recordMetaApiError(errMessage, "META_CONNECTION_FAILED", false);
+    throw new MetaApiError(errMessage, json.error);
   }
 
+  recordMetaApiSuccess();
   return json;
 }
 

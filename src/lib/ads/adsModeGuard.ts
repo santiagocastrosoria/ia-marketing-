@@ -3,6 +3,7 @@ import { getAdsMode, isReadOnlyMode } from "@/lib/utils/config";
 /** Acciones de lectura permitidas en ADS_MODE=read_only */
 export type MetaReadAction =
   | "TEST_CONNECTION"
+  | "DEBUG_PERMISSIONS"
   | "READ_ACCOUNT"
   | "READ_CAMPAIGNS"
   | "READ_ADSETS"
