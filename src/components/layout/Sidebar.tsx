@@ -14,6 +14,7 @@ import {
   LogOut,
   Plug,
   Eye,
+  Wand2,
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { isMockMode, isReadOnlyMode } from "@/lib/utils/config";
@@ -24,6 +25,7 @@ const navItems = [
   { href: "/brand-knowledge", label: "Base de marca", icon: BookOpen },
   { href: "/objectives", label: "Crear objetivo", icon: Target },
   { href: "/strategy", label: "Estrategia", icon: Sparkles },
+  { href: "/campaign-generator", label: "Generador de campañas", icon: Wand2 },
   { href: "/campaigns", label: "Campañas", icon: Layers },
   { href: "/approvals", label: "Aprobaciones", icon: ShieldCheck },
   { href: "/metrics", label: "Métricas", icon: BarChart3 },

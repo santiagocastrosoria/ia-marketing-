@@ -7,6 +7,7 @@ const PROTECTED_PAGE_PREFIXES = [
   "/brand-knowledge",
   "/objectives",
   "/strategy",
+  "/campaign-generator",
   "/campaigns",
   "/approvals",
   "/metrics",

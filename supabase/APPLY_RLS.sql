@@ -155,5 +155,12 @@ CREATE POLICY "brand_chunks_all_own" ON brand_knowledge_chunks FOR ALL
   USING (public.user_owns_business(business_id))
   WITH CHECK (public.user_owns_business(business_id));
 
+-- campaign_blueprints
+ALTER TABLE campaign_blueprints ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "campaign_blueprints_all_own" ON campaign_blueprints;
+CREATE POLICY "campaign_blueprints_all_own" ON campaign_blueprints FOR ALL
+  USING (auth.uid() = user_id AND public.user_owns_business(business_id))
+  WITH CHECK (auth.uid() = user_id AND public.user_owns_business(business_id));
+
 -- Migración opcional si la tabla ya existe sin NOT NULL:
 -- ALTER TABLE marketing_objectives ALTER COLUMN business_id SET NOT NULL;

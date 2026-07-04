@@ -13,6 +13,7 @@ import type {
   BrandKnowledgeChunk,
   BrandProfile,
 } from "@/lib/types/brand";
+import type { CampaignBlueprint } from "@/lib/types/campaignBlueprint";
 import { v4 as uuidv4 } from "uuid";
 import { getDemoUserId } from "@/lib/auth/getUserId";
 
@@ -28,6 +29,7 @@ interface MockStore {
   brandProfiles: BrandProfile[];
   brandDocuments: BrandDocument[];
   brandKnowledgeChunks: BrandKnowledgeChunk[];
+  campaignBlueprints: CampaignBlueprint[];
 }
 
 const globalForMock = globalThis as unknown as {
@@ -48,6 +50,7 @@ function getStore(): MockStore {
       brandProfiles: [],
       brandDocuments: [],
       brandKnowledgeChunks: [],
+      campaignBlueprints: [],
     };
   }
   return globalForMock.__mockStore;
@@ -357,5 +360,55 @@ export const mockStore = {
     store.brandKnowledgeChunks = store.brandKnowledgeChunks.filter(
       (c) => c.business_id !== businessId
     );
+  },
+
+  createCampaignBlueprint(
+    data: Omit<CampaignBlueprint, "id" | "created_at">
+  ): CampaignBlueprint {
+    const store = getStore();
+    const blueprint: CampaignBlueprint = {
+      id: uuidv4(),
+      created_at: now(),
+      ...data,
+    };
+    store.campaignBlueprints.push(blueprint);
+    return blueprint;
+  },
+
+  getCampaignBlueprints(userId?: string): CampaignBlueprint[] {
+    const uid = userId ?? getDemoUserId();
+    return getStore()
+      .campaignBlueprints.filter((b) => b.user_id === uid)
+      .sort(
+        (a, b) =>
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+  },
+
+  getCampaignBlueprint(id: string, userId?: string): CampaignBlueprint | undefined {
+    const uid = userId ?? getDemoUserId();
+    return getStore().campaignBlueprints.find(
+      (b) => b.id === id && b.user_id === uid
+    );
+  },
+
+  updateCampaignBlueprint(
+    id: string,
+    userId: string,
+    updates: {
+      status?: CampaignBlueprint["status"];
+      review?: CampaignBlueprint["review"];
+    }
+  ): CampaignBlueprint | undefined {
+    const store = getStore();
+    const idx = store.campaignBlueprints.findIndex(
+      (b) => b.id === id && b.user_id === userId
+    );
+    if (idx === -1) return undefined;
+    store.campaignBlueprints[idx] = {
+      ...store.campaignBlueprints[idx],
+      ...updates,
+    };
+    return store.campaignBlueprints[idx];
   },
 };

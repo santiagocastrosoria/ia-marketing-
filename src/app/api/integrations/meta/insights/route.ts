@@ -3,6 +3,11 @@ import { adsModeErrorResponse, apiErrorResponse, apiFail } from "@/lib/api/apiEr
 import { metaApiErrorResponse } from "@/lib/ads/metaApiRouteHelper";
 import { getAuthContext, unauthorizedResponse } from "@/lib/api/withAuth";
 import { getMetaIntegrationStatus } from "@/lib/ads/metaConfig";
+import {
+  META_NO_INSIGHTS_CODE,
+  META_NO_INSIGHTS_MESSAGE,
+  normalizeMetaDatePreset,
+} from "@/lib/ads/metaDatePresets";
 import { getMetaInsights } from "@/lib/ads/metaRealService";
 import { isReadOnlyMode } from "@/lib/utils/config";
 import { auditLog } from "@/lib/security/auditLogger";
@@ -27,7 +32,7 @@ export async function GET(request: Request) {
       | "ad";
     const campaignId = searchParams.get("campaignId") ?? undefined;
     const objectId = searchParams.get("objectId") ?? undefined;
-    const datePreset = searchParams.get("datePreset") ?? "last_30d";
+    const datePreset = normalizeMetaDatePreset(searchParams.get("datePreset"));
     const since = searchParams.get("since") ?? undefined;
     const until = searchParams.get("until") ?? undefined;
 
@@ -50,18 +55,20 @@ export async function GET(request: Request) {
       payload: { level, rowCount: result.rows.length, readOnly: true },
     });
 
+    const hasRows = result.rows.length > 0;
+
     return NextResponse.json({
       error: false,
       readOnly: true,
       source: "meta_api",
       simulated: false,
+      status: hasRows ? "ok" : "no_data",
+      code: hasRows ? undefined : META_NO_INSIGHTS_CODE,
+      datePreset,
       rows: result.rows,
       rawCount: result.rawCount,
       meta: getMetaIntegrationStatus(true),
-      message:
-        result.rows.length === 0
-          ? "No hay datos de insights para el período seleccionado."
-          : undefined,
+      message: hasRows ? undefined : META_NO_INSIGHTS_MESSAGE,
     });
   } catch (error) {
     const unauth = unauthorizedResponse(error);

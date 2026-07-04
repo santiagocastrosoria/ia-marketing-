@@ -16,7 +16,11 @@ import type { MetaInsightsResult } from "@/lib/ads/metaInsightsService";
 import { instagramPositionLabel } from "@/lib/ads/metaPlacements";
 import { Loader2, BarChart3, Sparkles, AlertTriangle, Camera } from "lucide-react";
 import Link from "next/link";
+import { MetaInsightsPeriodSelect } from "@/components/integrations/MetaInsightsPeriodSelect";
+import { MetaNoInsightsPanel } from "@/components/integrations/MetaNoInsightsPanel";
 import { formatARS } from "@/lib/utils/formatARS";
+import type { MetaDatePreset } from "@/lib/ads/metaDatePresets";
+import { META_NO_INSIGHTS_CODE } from "@/lib/ads/metaDatePresets";
 import type { MetaInsightRow } from "@/lib/ads/metaRealService";
 import type { MetaIntegrationStatus } from "@/lib/ads/metaConfig";
 import { fetchJson, FetchApiError } from "@/lib/api/fetchClient";
@@ -66,6 +70,8 @@ export default function MetricsPage() {
   const [realMetaLoading, setRealMetaLoading] = useState(false);
   const [realMetaError, setRealMetaError] = useState<string | null>(null);
   const [realMetaPermissionDenied, setRealMetaPermissionDenied] = useState(false);
+  const [realMetaNoData, setRealMetaNoData] = useState(false);
+  const [metaDatePreset, setMetaDatePreset] = useState<MetaDatePreset>("last_30d");
   const [period, setPeriod] = useState("30");
   const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
@@ -112,31 +118,28 @@ export default function MetricsPage() {
       });
   }, []);
 
-  const loadRealMetaInsights = async () => {
+  const loadRealMetaInsights = async (preset: MetaDatePreset = metaDatePreset) => {
     setRealMetaLoading(true);
     setRealMetaError(null);
     setRealMetaPermissionDenied(false);
+    setRealMetaNoData(false);
     setRealMetaRows([]);
     try {
-      const preset =
-        period === "1"
-          ? "today"
-          : period === "7"
-            ? "last_7d"
-            : period === "14"
-              ? "last_14d"
-              : "last_30d";
       const data = await fetchJson<{
         rows: MetaInsightRow[];
+        code?: string;
+        status?: string;
         message?: string;
         meta?: MetaIntegrationStatus;
       }>(`/api/integrations/meta/insights?datePreset=${preset}`);
       setRealMetaRows(data.rows ?? []);
       if (data.meta) setMetaIntegration(data.meta);
       if ((data.rows ?? []).length === 0) {
-        setRealMetaError(
-          data.message ?? "No hay datos de insights Meta para el período seleccionado."
-        );
+        if (data.code === META_NO_INSIGHTS_CODE || data.status === "no_data") {
+          setRealMetaNoData(true);
+        } else {
+          setRealMetaError(data.message ?? "No se pudieron cargar métricas Meta");
+        }
       }
     } catch (err) {
       setRealMetaRows([]);
@@ -154,11 +157,15 @@ export default function MetricsPage() {
     }
   };
 
+  const tryMetaDatePreset = (preset: MetaDatePreset) => {
+    setMetaDatePreset(preset);
+  };
+
   useEffect(() => {
     if (metricsSource === "meta_real" && adsMode === "read_only" && metaConfigured) {
-      loadRealMetaInsights();
+      loadRealMetaInsights(metaDatePreset);
     }
-  }, [metricsSource, period, metaConfigured]);
+  }, [metricsSource, metaDatePreset, metaConfigured]);
 
   const analyze = async () => {
     setAnalyzing(true);
@@ -300,16 +307,23 @@ export default function MetricsPage() {
               <option value="objective">Todas del objetivo actual</option>
               <option value="all">Todas mis campañas</option>
             </select>
-            <select
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-            >
-              <option value="1">Hoy</option>
-              <option value="7">7 días</option>
-              <option value="14">14 días</option>
-              <option value="30">30 días</option>
-            </select>
+            {metricsSource === "meta_real" ? (
+              <MetaInsightsPeriodSelect
+                value={metaDatePreset}
+                onChange={setMetaDatePreset}
+              />
+            ) : (
+              <select
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                value={period}
+                onChange={(e) => setPeriod(e.target.value)}
+              >
+                <option value="1">Hoy</option>
+                <option value="7">7 días</option>
+                <option value="14">14 días</option>
+                <option value="30">30 días</option>
+              </select>
+            )}
             {analyzeScope === "campaign" && (
               <select
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm max-w-xs"
@@ -352,6 +366,7 @@ export default function MetricsPage() {
           adsMode={adsMode}
           metricsSource={metricsSource}
           permissionDenied={realMetaPermissionDenied}
+          noData={realMetaNoData}
           simulated={
             metricsSource === "simulated" ||
             adsMode === "mock" ||
@@ -361,7 +376,7 @@ export default function MetricsPage() {
           source={metricsSource === "meta_real" ? "meta_api" : placementBreakdown?.source}
         />
 
-        {metricsSource === "meta_real" && adsMode === "read_only" && !realMetaPermissionDenied && !realMetaError && (
+        {metricsSource === "meta_real" && adsMode === "read_only" && !realMetaPermissionDenied && !realMetaNoData && realMetaRows.length > 0 && !realMetaLoading && (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
             <p className="font-semibold">Métricas reales de Meta/Instagram en solo lectura</p>
             <p className="mt-1 text-emerald-800">
@@ -381,13 +396,21 @@ export default function MetricsPage() {
           <MetaPermissionErrorPanel suggestion={metaIntegration?.permissionSuggestion} />
         )}
 
-        {metricsSource === "meta_real" && realMetaError && !realMetaLoading && !realMetaPermissionDenied && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        {metricsSource === "meta_real" && realMetaNoData && !realMetaLoading && !realMetaPermissionDenied && (
+          <MetaNoInsightsPanel
+            onTryPreset={(preset) => {
+              tryMetaDatePreset(preset);
+            }}
+          />
+        )}
+
+        {metricsSource === "meta_real" && realMetaError && !realMetaLoading && !realMetaPermissionDenied && !realMetaNoData && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
             {realMetaError}
           </div>
         )}
 
-        {metricsSource === "meta_real" && realMetaRows.length > 0 && !realMetaLoading && !realMetaError && (
+        {metricsSource === "meta_real" && realMetaRows.length > 0 && !realMetaLoading && (
           <RealMetaInsightsTable rows={realMetaRows} />
         )}
 
@@ -614,12 +637,14 @@ function MetricsSourceBanner({
   adsMode,
   metricsSource,
   permissionDenied,
+  noData,
   simulated,
   source,
 }: {
   adsMode: string;
   metricsSource: MetricsSource;
   permissionDenied?: boolean;
+  noData?: boolean;
   simulated: boolean;
   source?: MetaInsightsResult["source"];
 }) {
@@ -630,6 +655,20 @@ function MetricsSourceBanner({
         <div>
           <p className="font-semibold">Meta/Instagram — error de permisos (no son métricas reales)</p>
           <p className="mt-0.5 text-red-800">{META_PERMISSION_MESSAGE}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (metricsSource === "meta_real" && noData) {
+    return (
+      <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+        <Camera className="h-5 w-5 shrink-0 text-slate-500" />
+        <div>
+          <p className="font-semibold">Fuente: Meta/Instagram API — sin datos en el período</p>
+          <p className="mt-0.5 text-slate-600">
+            La conexión respondió correctamente; no hay filas de insights para el rango elegido.
+          </p>
         </div>
       </div>
     );

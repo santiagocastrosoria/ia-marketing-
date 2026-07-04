@@ -4,7 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/Button";
 import { fetchJson, FetchApiError } from "@/lib/api/fetchClient";
+import { MetaInsightsPeriodSelect } from "@/components/integrations/MetaInsightsPeriodSelect";
+import { MetaNoInsightsPanel } from "@/components/integrations/MetaNoInsightsPanel";
 import type { MetaIntegrationStatus } from "@/lib/ads/metaConfig";
+import type { MetaDatePreset } from "@/lib/ads/metaDatePresets";
+import { META_NO_INSIGHTS_CODE } from "@/lib/ads/metaDatePresets";
 import type { MetaDebugPermissionsReport } from "@/lib/ads/metaDebugService";
 import type { MetaAdAccount, MetaInsightRow, MetaRealCampaign } from "@/lib/ads/metaRealService";
 import {
@@ -43,6 +47,8 @@ export default function IntegrationsSettingsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [diagnostic, setDiagnostic] = useState<MetaDebugPermissionsReport | null>(null);
   const [loadingDiagnostic, setLoadingDiagnostic] = useState(false);
+  const [metaDatePreset, setMetaDatePreset] = useState<MetaDatePreset>("last_30d");
+  const [insightsNoData, setInsightsNoData] = useState(false);
 
   const loadStatus = useCallback(() => {
     setLoading(true);
@@ -123,24 +129,41 @@ export default function IntegrationsSettingsPage() {
     }
   };
 
-  const loadInsights = async () => {
+  const loadInsights = async (preset: MetaDatePreset = metaDatePreset) => {
     setLoadingInsights(true);
     setActionMessage(null);
     setActionError(null);
+    setInsightsNoData(false);
     try {
-      const data = await fetchJson<{ rows: MetaInsightRow[]; message?: string }>(
-        "/api/integrations/meta/insights?datePreset=last_30d"
-      );
+      const data = await fetchJson<{
+        rows: MetaInsightRow[];
+        code?: string;
+        status?: string;
+        message?: string;
+      }>(`/api/integrations/meta/insights?datePreset=${preset}`);
       setInsights(data.rows ?? []);
-      setActionMessage(
-        data.message ??
+      if ((data.rows ?? []).length === 0) {
+        if (data.code === META_NO_INSIGHTS_CODE || data.status === "no_data") {
+          setInsightsNoData(true);
+          setActionMessage(null);
+        } else {
+          setActionMessage(data.message ?? "Sin filas de insights.");
+        }
+      } else {
+        setActionMessage(
           `${data.rows?.length ?? 0} fila(s) de insights leídas (solo lectura).`
-      );
+        );
+      }
     } catch (err) {
-      setActionError(
-        err instanceof FetchApiError ? err.message : "Error al leer métricas"
-      );
+      if (err instanceof FetchApiError && err.code === "META_PERMISSION_DENIED") {
+        setActionError(err.message);
+      } else {
+        setActionError(
+          err instanceof FetchApiError ? err.message : "Error al leer métricas"
+        );
+      }
       setInsights(null);
+      setInsightsNoData(false);
       if (err instanceof FetchApiError && err.body?.meta) {
         setMeta(err.body.meta as MetaIntegrationStatus);
       }
@@ -264,7 +287,11 @@ export default function IntegrationsSettingsPage() {
           )}
 
           {isReadOnly && (
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <MetaInsightsPeriodSelect
+                value={metaDatePreset}
+                onChange={setMetaDatePreset}
+              />
               <Button onClick={testConnection} disabled={testing} size="sm">
                 {testing ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -288,7 +315,7 @@ export default function IntegrationsSettingsPage() {
               </Button>
               <Button
                 variant="secondary"
-                onClick={loadInsights}
+                onClick={() => loadInsights(metaDatePreset)}
                 disabled={loadingInsights}
                 size="sm"
               >
@@ -371,7 +398,16 @@ export default function IntegrationsSettingsPage() {
             </div>
           )}
 
-          {insights && (
+          {insightsNoData && !actionError && (
+            <MetaNoInsightsPanel
+              onTryPreset={(preset) => {
+                setMetaDatePreset(preset);
+                loadInsights(preset);
+              }}
+            />
+          )}
+
+          {insights && insights.length > 0 && (
             <div className="overflow-x-auto">
               <p className="text-xs font-medium text-slate-500 mb-2">
                 Insights Meta (read only) — {insights.length} fila(s)

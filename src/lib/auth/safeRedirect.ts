@@ -3,6 +3,7 @@ const ALLOWED_REDIRECT_PREFIXES = [
   "/brand-knowledge",
   "/objectives",
   "/strategy",
+  "/campaign-generator",
   "/campaigns",
   "/approvals",
   "/metrics",

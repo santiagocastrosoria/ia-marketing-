@@ -187,13 +187,37 @@ CREATE TABLE IF NOT EXISTS brand_knowledge_chunks (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Campaign blueprints (internal drafts — no Meta write)
+CREATE TABLE IF NOT EXISTS campaign_blueprints (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL,
+  business_id UUID NOT NULL REFERENCES businesses(id) ON DELETE CASCADE,
+  input_json JSONB NOT NULL,
+  proposal_json JSONB NOT NULL,
+  status TEXT NOT NULL DEFAULT 'INTERNAL_DRAFT' CHECK (
+    status IN (
+      'INTERNAL_DRAFT',
+      'READY_FOR_META_DRAFT',
+      'NEEDS_ASSETS',
+      'NEEDS_REVIEW',
+      'APPROVAL_REQUIRED'
+    )
+  ),
+  review_json JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_brand_profiles_business ON brand_profiles(business_id);
 CREATE INDEX IF NOT EXISTS idx_brand_documents_business ON brand_documents(business_id);
 CREATE INDEX IF NOT EXISTS idx_brand_chunks_business ON brand_knowledge_chunks(business_id);
 CREATE INDEX IF NOT EXISTS idx_brand_chunks_document ON brand_knowledge_chunks(document_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_blueprints_user ON campaign_blueprints(user_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_blueprints_business ON campaign_blueprints(business_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_blueprints_status ON campaign_blueprints(status);
 
 -- Row Level Security
+ALTER TABLE campaign_blueprints ENABLE ROW LEVEL SECURITY;
 ALTER TABLE brand_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE brand_documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE brand_knowledge_chunks ENABLE ROW LEVEL SECURITY;
@@ -360,3 +384,9 @@ DROP POLICY IF EXISTS "api_connections_all_own" ON api_connections;
 CREATE POLICY "api_connections_all_own" ON api_connections FOR ALL
   USING (public.user_owns_business(business_id))
   WITH CHECK (public.user_owns_business(business_id));
+
+-- campaign_blueprints
+DROP POLICY IF EXISTS "campaign_blueprints_all_own" ON campaign_blueprints;
+CREATE POLICY "campaign_blueprints_all_own" ON campaign_blueprints FOR ALL
+  USING (auth.uid() = user_id AND public.user_owns_business(business_id))
+  WITH CHECK (auth.uid() = user_id AND public.user_owns_business(business_id));

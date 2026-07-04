@@ -23,6 +23,20 @@ import type {
   BrandKnowledgeChunk,
   BrandProfile,
 } from "@/lib/types/brand";
+import type { CampaignBlueprint } from "@/lib/types/campaignBlueprint";
+
+function hydrateCampaignBlueprint(row: Record<string, unknown>): CampaignBlueprint {
+  return {
+    id: row.id as string,
+    user_id: row.user_id as string,
+    business_id: row.business_id as string,
+    input: row.input_json as CampaignBlueprint["input"],
+    proposal: row.proposal_json as CampaignBlueprint["proposal"],
+    status: row.status as CampaignBlueprint["status"],
+    review: row.review_json as CampaignBlueprint["review"] | undefined,
+    created_at: row.created_at as string,
+  };
+}
 
 export interface Repository {
   readonly userId: string;
@@ -97,6 +111,18 @@ export interface Repository {
   ): Promise<BrandKnowledgeChunk>;
   getBrandKnowledgeChunks(businessId: string): Promise<BrandKnowledgeChunk[]>;
   deleteBrandKnowledgeChunks(businessId: string): Promise<void>;
+  createCampaignBlueprint(
+    data: Omit<CampaignBlueprint, "id" | "created_at">
+  ): Promise<CampaignBlueprint>;
+  getCampaignBlueprints(businessId?: string): Promise<CampaignBlueprint[]>;
+  getCampaignBlueprint(id: string): Promise<CampaignBlueprint | undefined>;
+  updateCampaignBlueprint(
+    id: string,
+    updates: {
+      status?: CampaignBlueprint["status"];
+      review?: CampaignBlueprint["review"];
+    }
+  ): Promise<CampaignBlueprint | undefined>;
   assertOwnsBusiness(businessId: string): Promise<void>;
 }
 
@@ -391,6 +417,41 @@ class ScopedMockRepository implements Repository {
   async deleteBrandKnowledgeChunks(businessId: string) {
     await this.assertOwnsBusiness(businessId);
     return mockStore.deleteBrandKnowledgeChunks(businessId);
+  }
+
+  async createCampaignBlueprint(
+    data: Omit<CampaignBlueprint, "id" | "created_at">
+  ) {
+    await this.assertOwnsBusiness(data.business_id);
+    if (data.user_id !== this.userId) {
+      throw new Error("No autorizado para crear blueprint de otro usuario");
+    }
+    return mockStore.createCampaignBlueprint(data);
+  }
+
+  async getCampaignBlueprints(businessId?: string) {
+    const list = mockStore.getCampaignBlueprints(this.userId);
+    if (!businessId) return list;
+    return list.filter((b) => b.business_id === businessId);
+  }
+
+  async getCampaignBlueprint(id: string) {
+    const blueprint = mockStore.getCampaignBlueprint(id, this.userId);
+    if (!blueprint) return undefined;
+    await this.assertOwnsBusiness(blueprint.business_id);
+    return blueprint;
+  }
+
+  async updateCampaignBlueprint(
+    id: string,
+    updates: {
+      status?: CampaignBlueprint["status"];
+      review?: CampaignBlueprint["review"];
+    }
+  ) {
+    const blueprint = await this.getCampaignBlueprint(id);
+    if (!blueprint) return undefined;
+    return mockStore.updateCampaignBlueprint(id, this.userId, updates);
   }
 }
 
@@ -1084,6 +1145,79 @@ class SupabaseRepository implements Repository {
       .from("brand_knowledge_chunks")
       .delete()
       .eq("business_id", businessId);
+  }
+
+  async createCampaignBlueprint(
+    data: Omit<CampaignBlueprint, "id" | "created_at">
+  ): Promise<CampaignBlueprint> {
+    await this.assertOwnsBusiness(data.business_id);
+    const { data: row, error } = await this.client
+      .from("campaign_blueprints")
+      .insert({
+        user_id: this.userId,
+        business_id: data.business_id,
+        input_json: data.input,
+        proposal_json: data.proposal,
+        status: data.status,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return hydrateCampaignBlueprint(row);
+  }
+
+  async getCampaignBlueprints(businessId?: string): Promise<CampaignBlueprint[]> {
+    let query = this.client
+      .from("campaign_blueprints")
+      .select("*")
+      .eq("user_id", this.userId)
+      .order("created_at", { ascending: false });
+    if (businessId) {
+      await this.assertOwnsBusiness(businessId);
+      query = query.eq("business_id", businessId);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    return (data ?? []).map(hydrateCampaignBlueprint);
+  }
+
+  async getCampaignBlueprint(id: string): Promise<CampaignBlueprint | undefined> {
+    const { data, error } = await this.client
+      .from("campaign_blueprints")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", this.userId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return undefined;
+    const blueprint = hydrateCampaignBlueprint(data);
+    await this.assertOwnsBusiness(blueprint.business_id);
+    return blueprint;
+  }
+
+  async updateCampaignBlueprint(
+    id: string,
+    updates: {
+      status?: CampaignBlueprint["status"];
+      review?: CampaignBlueprint["review"];
+    }
+  ): Promise<CampaignBlueprint | undefined> {
+    const existing = await this.getCampaignBlueprint(id);
+    if (!existing) return undefined;
+
+    const payload: Record<string, unknown> = {};
+    if (updates.status !== undefined) payload.status = updates.status;
+    if (updates.review !== undefined) payload.review_json = updates.review;
+
+    const { data, error } = await this.client
+      .from("campaign_blueprints")
+      .update(payload)
+      .eq("id", id)
+      .eq("user_id", this.userId)
+      .select()
+      .single();
+    if (error) throw error;
+    return hydrateCampaignBlueprint(data);
   }
 }
 
